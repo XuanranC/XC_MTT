@@ -82,12 +82,43 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       if (cloudData) {
         localStorage.setItem('drillProgress', JSON.stringify(cloudData));
       }
+      // Stamp the moment we finished syncing so staleness check works.
+      localStorage.setItem('lastSyncedAt', String(Date.now()));
     } catch (error) {
       console.error('Sync failed:', error);
     } finally {
       setSyncing(false);
     }
   }, [user, firebaseReady]);
+
+  // Auto-sync 1: whenever user transitions to signed-in. Fires on fresh
+  // sign-in AND on app open with persisted session.
+  useEffect(() => {
+    if (user && firebaseReady) {
+      syncProgress();
+    }
+  }, [user, firebaseReady, syncProgress]);
+
+  // Auto-sync 2: when the tab regains focus after being idle for >5 min,
+  // re-sync so a device that sat unopened for a day pulls down recent
+  // drills from other devices.
+  useEffect(() => {
+    if (!user || !firebaseReady) return;
+    const STALE_MS = 5 * 60 * 1000; // 5 minutes
+    const onFocus = () => {
+      const last = Number(localStorage.getItem('lastSyncedAt') ?? 0);
+      if (Date.now() - last > STALE_MS) {
+        syncProgress();
+      }
+    };
+    window.addEventListener('focus', onFocus);
+    document.addEventListener('visibilitychange', () => {
+      if (document.visibilityState === 'visible') onFocus();
+    });
+    return () => {
+      window.removeEventListener('focus', onFocus);
+    };
+  }, [user, firebaseReady, syncProgress]);
 
   return (
     <AuthContext.Provider value={{ user, loading, signIn, signOut: handleSignOut, syncProgress, syncing }}>
