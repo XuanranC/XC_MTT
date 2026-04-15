@@ -1,26 +1,119 @@
 @import "tailwindcss";
 
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
+  --bg-primary: #0f172a;
+  --bg-card: #1e293b;
+  --bg-hover: #334155;
+  --text-primary: #f1f5f9;
+  --text-secondary: #94a3b8;
+  --accent: #22c55e;
+  --raise: #22c55e;
+  --call: #3b82f6;
+  --fold: #ef4444;
+  --allin: #f59e0b;
 }
 
 @theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
+  --color-bg-primary: var(--bg-primary);
+  --color-bg-card: var(--bg-card);
+  --color-bg-hover: var(--bg-hover);
+  --color-text-primary: var(--text-primary);
+  --color-text-secondary: var(--text-secondary);
+  --color-accent: var(--accent);
+  --color-raise: var(--raise);
+  --color-call: var(--call);
+  --color-fold: var(--fold);
+  --color-allin: var(--allin);
   --font-sans: var(--font-geist-sans);
   --font-mono: var(--font-geist-mono);
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
+body {
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  font-family: var(--font-geist-sans), system-ui, sans-serif;
 }
 
-body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+/* Range matrix grid */
+.range-grid {
+  display: grid;
+  grid-template-columns: repeat(13, 1fr);
+  gap: 1px;
+}
+
+.range-cell {
+  aspect-ratio: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.55rem;
+  font-weight: 600;
+  border-radius: 2px;
+  cursor: pointer;
+  transition: opacity 0.15s ease, transform 0.1s ease;
+  user-select: none;
+  line-height: 1;
+  letter-spacing: -0.01em;
+}
+
+.range-cell:hover {
+  opacity: 0.85;
+  transform: scale(1.1);
+  z-index: 1;
+}
+
+.range-cell--raise {
+  background-color: var(--raise);
+  color: #052e16;
+}
+
+.range-cell--call {
+  background-color: var(--call);
+  color: #1e3a5f;
+}
+
+.range-cell--fold {
+  background-color: var(--fold);
+  color: #450a0a;
+}
+
+.range-cell--allin {
+  background-color: var(--allin);
+  color: #451a03;
+}
+
+.range-cell--empty {
+  background-color: var(--bg-hover);
+  color: var(--text-secondary);
+}
+
+/* Mixed action cell: striped gradient */
+.range-cell--mixed {
+  color: #fff;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.4);
+}
+
+/* Scrollbar styling */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: var(--bg-primary);
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--bg-hover);
+  border-radius: 3px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--text-secondary);
+}
+
+/* Nav active link */
+.nav-link-active {
+  color: var(--accent);
+  border-color: var(--accent);
 }
