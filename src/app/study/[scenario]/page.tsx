@@ -2,6 +2,7 @@
 
 import { use, useState, useEffect, useMemo } from 'react';
 import Link from 'next/link';
+import { useSearchParams } from 'next/navigation';
 import {
   getScenarioData,
   getIndex,
@@ -1303,7 +1304,7 @@ function LearnByPosition({
 
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
           {charts.filter(({ chart }) => chart != null).map(({ bb, chart }) => (
-            <div key={bb} className="rounded-xl overflow-hidden"
+            <div key={bb} id={`bb-card-${bb}`} className="rounded-xl overflow-hidden scroll-mt-20"
               style={{ background: 'linear-gradient(135deg, rgba(255,255,255,0.04) 0%, rgba(255,255,255,0.01) 100%)', border: '1px solid rgba(255,255,255,0.06)' }}>
               {/* Header */}
               <div className="px-4 py-3 flex items-center justify-between border-b border-white/5">
@@ -1386,6 +1387,7 @@ export default function StudyScenarioPage({
   params: Promise<{ scenario: string }>;
 }) {
   const { scenario } = use(params);
+  const searchParams = useSearchParams();
 
   const [scenarioData, setScenarioData] = useState<ScenarioData | null>(null);
   const [indexData, setIndexData] = useState<IndexData | null>(null);
@@ -1405,9 +1407,27 @@ export default function StudyScenarioPage({
         if (cancelled) return;
         setScenarioData(sd);
         setIndexData(idx);
-        setPosition(sd.positions[0]);
-        if (sd.vs_positions && sd.vs_positions.length > 0) setVs(sd.vs_positions[0]);
-        setBb(sd.bbs.find((b) => b === 20) ?? sd.bbs[Math.floor(sd.bbs.length / 2)]);
+
+        // URL deep-links (e.g. from the drill "View Chart" modal):
+        //   ?view=byBB|byPosition|chart
+        //   &position=HJ  &vs=BTN  &bb=20
+        // Fall back to sensible defaults if missing/invalid.
+        const urlView = searchParams.get('view');
+        if (urlView === 'byBB' || urlView === 'byPosition' || urlView === 'chart') {
+          setViewMode(urlView);
+        }
+        const urlPos = searchParams.get('position');
+        setPosition(urlPos && sd.positions.includes(urlPos) ? urlPos : sd.positions[0]);
+        const urlVs = searchParams.get('vs');
+        if (sd.vs_positions && sd.vs_positions.length > 0) {
+          setVs(urlVs && sd.vs_positions.includes(urlVs) ? urlVs : sd.vs_positions[0]);
+        }
+        const urlBb = Number(searchParams.get('bb'));
+        if (urlBb && sd.bbs.includes(urlBb)) {
+          setBb(urlBb);
+        } else {
+          setBb(sd.bbs.find((b) => b === 20) ?? sd.bbs[Math.floor(sd.bbs.length / 2)]);
+        }
       } catch (e: unknown) {
         if (!cancelled) setError(e instanceof Error ? e.message : String(e));
       } finally {
@@ -1416,7 +1436,22 @@ export default function StudyScenarioPage({
     }
     load();
     return () => { cancelled = true; };
-  }, [scenario]);
+  }, [scenario, searchParams]);
+
+  // When byPosition view loads from a deep link with ?bb=, scroll the matching
+  // BB card into view so the user lands right at their target stack depth.
+  useEffect(() => {
+    if (loading) return;
+    if (viewMode !== 'byPosition') return;
+    const targetBb = Number(searchParams.get('bb'));
+    if (!targetBb) return;
+    // Wait a frame for the grid to paint before scrolling.
+    const t = setTimeout(() => {
+      const el = document.getElementById(`bb-card-${targetBb}`);
+      if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }, 120);
+    return () => clearTimeout(t);
+  }, [loading, viewMode, searchParams, position]);
 
   const chart = useMemo(() => {
     if (!scenarioData || !position || !bb) return undefined;

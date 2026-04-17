@@ -397,21 +397,50 @@ function cellBg(hand: HandData | undefined): string {
 }
 
 function RangeMatrixModal({
-  chart, title, highlightHand, onClose,
+  chart, title, highlightHand, scenario, position, vs, bb, onClose,
 }: {
-  chart: Chart; title: string; highlightHand: string; onClose: () => void;
+  chart: Chart; title: string; highlightHand: string;
+  scenario: string; position: string; vs: string | undefined; bb: number;
+  onClose: () => void;
 }) {
   const focusHand = chart.hands[highlightHand];
   const focusActions = focusHand ? getHandActions(focusHand) : [];
   const reach = focusHand?.reach ?? 100;
   const isConditional = reach < 99.5;
 
+  // Build deep links into the study page — open in a new tab so the drill
+  // stays intact behind the user's click.
+  const studyBase = `/study/${encodeURIComponent(scenario)}`;
+  const vsParam = vs ? `&vs=${encodeURIComponent(vs)}` : '';
+  const byBBHref = `${studyBase}?view=byBB&bb=${bb}&position=${encodeURIComponent(position)}${vsParam}`;
+  const byPosHref = `${studyBase}?view=byPosition&position=${encodeURIComponent(position)}&bb=${bb}${vsParam}`;
+
   return (
     <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/85 backdrop-blur-sm p-3" onClick={onClose}>
-      <div className="bg-slate-900 rounded-xl w-full max-w-lg shadow-2xl border border-white/10" onClick={(e) => e.stopPropagation()}>
-        <div className="flex items-center justify-between px-4 py-3 border-b border-white/10">
+      <div className="bg-slate-900 rounded-xl w-full max-w-lg shadow-2xl border border-white/10 max-h-[92vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
+        <div className="flex items-center justify-between px-4 py-3 border-b border-white/10 sticky top-0 bg-slate-900 z-10">
           <div className="text-sm font-bold text-white">{title}</div>
           <button onClick={onClose} className="text-white/70 hover:text-white text-2xl leading-none px-2">&times;</button>
+        </div>
+
+        {/* Cross-chart shortcuts: open study-page views in a new tab */}
+        <div className="px-4 pt-3 flex gap-2">
+          <a
+            href={byBBHref}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="flex-1 text-center py-2 rounded-lg text-xs font-bold border border-sky-400/40 text-sky-300 bg-sky-500/10 hover:bg-sky-500/20 transition-colors"
+          >
+            By BB · 同 BB 对比 ↗
+          </a>
+          <a
+            href={byPosHref}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="flex-1 text-center py-2 rounded-lg text-xs font-bold border border-emerald-400/40 text-emerald-300 bg-emerald-500/10 hover:bg-emerald-500/20 transition-colors"
+          >
+            By Position · 同位对比 ↗
+          </a>
         </div>
 
         {/* Focus hand detail — shows exact frequencies for the hand the user just answered */}
@@ -1308,6 +1337,10 @@ export default function DrillPage() {
               chart={chart}
               title={title}
               highlightHand={q.hand}
+              scenario={q.scenario}
+              position={q.position}
+              vs={q.vs}
+              bb={q.bb}
               onClose={() => setShowChart(false)}
             />
           );
