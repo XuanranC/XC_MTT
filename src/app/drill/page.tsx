@@ -5,10 +5,12 @@ import {
   IndexData,
   ScenarioData,
   HandData,
+  Chart,
   DrillQuestion,
   DrillAnswer,
   DrillFilters,
   SCENARIO_LABELS,
+  RANKS,
   compareScenarios,
   ACTION_COLORS,
 } from '@/lib/types';
@@ -343,6 +345,113 @@ function deriveAction(scenario: string, heroSeat: Seat | null, vs: string | unde
   }
 
   return { villainSeat, villainLabel: vs || '', villainColor: '#eab308', foldedSeats: folded, bbInPot: pot };
+}
+
+// ---------------------------------------------------------------------------
+// Range matrix modal (shown after wrong answer so user can study full chart)
+// ---------------------------------------------------------------------------
+
+function hexToRgba(hex: string, alpha: number): string {
+  const r = parseInt(hex.slice(1, 3), 16);
+  const g = parseInt(hex.slice(3, 5), 16);
+  const b = parseInt(hex.slice(5, 7), 16);
+  return `rgba(${r},${g},${b},${alpha})`;
+}
+
+function matrixHandName(ri: number, ci: number): string {
+  const r1 = RANKS[ri]; const r2 = RANKS[ci];
+  if (ri < ci) return `${r1}${r2}s`;
+  if (ri === ci) return `${r1}${r2}`;
+  return `${r2}${r1}o`;
+}
+
+function cellBg(hand: HandData | undefined): string {
+  if (!hand) return 'rgba(0,0,0,0.15)';
+  const reach = hand.reach ?? 100;
+  if (reach < 0.5) return 'rgba(0,0,0,0.55)';
+  const actions = getHandActions(hand);
+  if (actions.length === 0) return 'rgba(0,0,0,0.15)';
+  const threshold = Math.max(0.5, reach * 0.01);
+  const nonFold = actions.filter((a) => a.action !== 'fold' && a.pct >= threshold);
+  if (nonFold.length === 0) return 'rgba(0,0,0,0.15)';
+  const totalNonFold = nonFold.reduce((s, a) => s + a.pct, 0);
+  const alpha = Math.max(Math.min(totalNonFold / reach, 1), 0.2);
+  let actionGrad: string;
+  if (nonFold.length === 1) {
+    actionGrad = hexToRgba(ACTION_COLORS[nonFold[0].action] ?? '#888', alpha);
+  } else {
+    let cumulative = 0;
+    const stops: string[] = [];
+    for (const a of nonFold) {
+      const scaledPct = (a.pct / totalNonFold) * 100;
+      const color = hexToRgba(ACTION_COLORS[a.action] ?? '#888', alpha);
+      stops.push(`${color} ${cumulative.toFixed(1)}%`);
+      cumulative += scaledPct;
+      stops.push(`${color} ${cumulative.toFixed(1)}%`);
+    }
+    actionGrad = `linear-gradient(135deg, ${stops.join(', ')})`;
+  }
+  if (reach >= 99.5) return actionGrad;
+  const voidColor = 'rgba(0,0,0,0.72)';
+  return `linear-gradient(to top, transparent 0%, transparent ${reach.toFixed(1)}%, ${voidColor} ${reach.toFixed(1)}%, ${voidColor} 100%), ${actionGrad}`;
+}
+
+function RangeMatrixModal({
+  chart, title, highlightHand, onClose,
+}: {
+  chart: Chart; title: string; highlightHand: string; onClose: () => void;
+}) {
+  return (
+    <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/85 backdrop-blur-sm p-3" onClick={onClose}>
+      <div className="bg-slate-900 rounded-xl w-full max-w-lg shadow-2xl border border-white/10" onClick={(e) => e.stopPropagation()}>
+        <div className="flex items-center justify-between px-4 py-3 border-b border-white/10">
+          <div className="text-sm font-bold text-white">{title}</div>
+          <button onClick={onClose} className="text-white/70 hover:text-white text-2xl leading-none px-2">&times;</button>
+        </div>
+        <div className="p-3">
+          <div className="aspect-square w-full">
+            <div className="grid h-full w-full gap-px"
+              style={{ gridTemplateColumns: `16px repeat(13, 1fr)`, gridTemplateRows: `14px repeat(13, 1fr)` }}>
+              <div />
+              {RANKS.map((r) => (
+                <div key={`ch-${r}`} className="text-[9px] text-white/70 font-semibold flex items-end justify-center pb-0.5">{r}</div>
+              ))}
+              {RANKS.flatMap((rowRank, ri) => [
+                <div key={`rh-${ri}`} className="text-[9px] text-white/70 font-semibold flex items-center justify-end pr-1">{rowRank}</div>,
+                ...RANKS.map((_, ci) => {
+                  const name = matrixHandName(ri, ci);
+                  const hand = chart.hands[name];
+                  const bg = cellBg(hand);
+                  const isHighlight = name === highlightHand;
+                  return (
+                    <div
+                      key={`c-${ri}-${ci}`}
+                      className={`flex items-center justify-center text-[8px] sm:text-[9px] font-semibold leading-none ${
+                        isHighlight ? 'ring-2 ring-white z-10' : 'border border-black/20'
+                      }`}
+                      style={{ background: bg, color: 'rgba(0,0,0,0.85)' }}
+                      title={name}
+                    >
+                      {name}
+                    </div>
+                  );
+                }),
+              ])}
+            </div>
+          </div>
+          {/* Legend */}
+          <div className="mt-3 flex items-center justify-center gap-3 text-[10px] text-white/60">
+            {(['call', 'raise', 'allin', 'fold'] as const).map((a) => (
+              <div key={a} className="flex items-center gap-1">
+                <div className="w-2.5 h-2.5 rounded-sm" style={{ background: ACTION_COLORS[a] }} />
+                <span>{ACTION_LABELS[a]}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
 }
 
 function HandCards({ hand }: { hand: string }) {
@@ -708,6 +817,7 @@ export default function DrillPage() {
   const [selectedPct, setSelectedPct] = useState(50);
   const [availableActions, setAvailableActions] = useState<string[]>([]);
   const [flashResult, setFlashResult] = useState<'correct' | 'incorrect' | null>(null);
+  const [showChart, setShowChart] = useState(false);
   const [submitted, setSubmitted] = useState(false);
 
   // Preloaded scenario data cache for determining available actions per chart
@@ -789,44 +899,51 @@ export default function DrillPage() {
     setAvailableActions(actions);
   }, []);
 
-  // Submit answer — called directly on action click (no frequency slider)
+  // Advance to next question (or end drill). Extracted so both auto-advance
+  // (on correct) and manual-advance (on wrong, via Next button) call the same path.
+  const advanceToNext = useCallback((allAnswersWithCurrent: DrillAnswer[]) => {
+    setFlashResult(null);
+    setSubmitted(false);
+    setShowChart(false);
+
+    const nextIdx = currentIdx + 1;
+    if (nextIdx >= questions.length) {
+      try {
+        recordDrillSession(allAnswersWithCurrent, selectedScenarios.join(','));
+        localStorage.setItem('lastDrillAnswers', JSON.stringify(allAnswersWithCurrent));
+        syncProgress().catch(() => {});
+      } catch (e) {
+        console.error('Failed to record progress:', e);
+      }
+      setPhase('review');
+    } else {
+      setCurrentIdx(nextIdx);
+      setSelectedAction(null);
+      setSelectedPct(50);
+      loadActionsForQuestion(questions[nextIdx]);
+    }
+  }, [currentIdx, questions, answers, selectedScenarios, syncProgress, loadActionsForQuestion]);
+
+  // Submit answer — called directly on action click.
+  // - Correct: flash ✓ and auto-advance after 1s (fast flow).
+  // - Wrong:   flash ✗ and PAUSE — user clicks "Next" or "View Chart" to continue.
   const submitAnswer = useCallback((action: string) => {
     if (submitted) return;
     setSelectedAction(action);
     const question = questions[currentIdx];
     const result = evaluateAnswer(question, action);
     const answer: DrillAnswer = { ...result, timestamp: Date.now() };
+    const allAnswersWithCurrent = [...answers, answer];
 
-    setAnswers((prev) => [...prev, answer]);
+    setAnswers(allAnswersWithCurrent);
     setSubmitted(true);
     setFlashResult(answer.isCorrect ? 'correct' : 'incorrect');
 
-    // Auto-advance after 1 second
-    setTimeout(() => {
-      setFlashResult(null);
-      setSubmitted(false);
-
-      const nextIdx = currentIdx + 1;
-      if (nextIdx >= questions.length) {
-        // Record progress — use the answers array + current answer
-        const allAnswers = [...answers, answer];
-        try {
-          recordDrillSession(allAnswers, selectedScenarios.join(','));
-          localStorage.setItem('lastDrillAnswers', JSON.stringify(allAnswers));
-          // Auto-sync to cloud if signed in
-          syncProgress().catch(() => {});
-        } catch (e) {
-          console.error('Failed to record progress:', e);
-        }
-        setPhase('review');
-      } else {
-        setCurrentIdx(nextIdx);
-        setSelectedAction(null);
-        setSelectedPct(50);
-        loadActionsForQuestion(questions[nextIdx]);
-      }
-    }, 1000);
-  }, [submitted, questions, currentIdx, loadActionsForQuestion, answers, selectedScenarios, syncProgress]);
+    if (answer.isCorrect) {
+      setTimeout(() => advanceToNext(allAnswersWithCurrent), 1000);
+    }
+    // Wrong → no setTimeout; user drives the pace via the Next / View Chart buttons.
+  }, [submitted, questions, currentIdx, answers, advanceToNext]);
 
   // Context bar text
   const contextText = (q: DrillQuestion) => {
@@ -1082,7 +1199,7 @@ export default function DrillPage() {
           </div>
 
           {/* ── Action Buttons (one-tap answer, auto-submit) ── */}
-          <div className="pb-4 md:pb-6 shrink-0">
+          <div className="pb-4 md:pb-6 shrink-0 space-y-3">
             <div className="flex flex-wrap gap-2">
               {availableActions.map((action) => {
                 const isSelected = selectedAction === action;
@@ -1112,8 +1229,43 @@ export default function DrillPage() {
                 );
               })}
             </div>
+
+            {/* Post-wrong-answer controls: stop auto-advance, let user study. */}
+            {submitted && flashResult === 'incorrect' && (
+              <div className="flex gap-2">
+                <button
+                  onClick={() => setShowChart(true)}
+                  className="flex-1 py-3 rounded-xl text-base font-bold border-2 border-sky-400/50 text-sky-300 bg-sky-500/10 hover:bg-sky-500/20 active:scale-95 transition-all"
+                >
+                  查看正确范围
+                </button>
+                <button
+                  onClick={() => advanceToNext(answers)}
+                  className="flex-1 py-3 rounded-xl text-base font-bold bg-white/10 text-white border-2 border-white/20 hover:bg-white/15 active:scale-95 transition-all"
+                >
+                  下一题 →
+                </button>
+              </div>
+            )}
           </div>
         </div>
+
+        {/* Range chart modal */}
+        {showChart && (() => {
+          const q = questions[currentIdx];
+          const data = scenarioDataCache.current[q.scenario];
+          const chart = data?.charts.find((c) => c.id === q.chartId);
+          if (!chart) return null;
+          const title = `${SCENARIO_LABELS[q.scenario] || q.scenario} · ${q.position}${q.vs ? ` vs ${q.vs}` : ''} · ${q.bb}bb`;
+          return (
+            <RangeMatrixModal
+              chart={chart}
+              title={title}
+              highlightHand={q.hand}
+              onClose={() => setShowChart(false)}
+            />
+          );
+        })()}
       </div>
     );
   }
