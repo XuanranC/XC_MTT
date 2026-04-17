@@ -893,10 +893,14 @@ export default function DrillPage() {
   const [availableActions, setAvailableActions] = useState<string[]>([]);
   const [flashResult, setFlashResult] = useState<'correct' | 'incorrect' | null>(null);
   const [showChart, setShowChart] = useState(false);
+  // Review mode: browse previously answered questions without advancing the
+  // live drill. null ⇒ live at currentIdx. Number ⇒ viewing answers[n].
+  const [reviewingIdx, setReviewingIdx] = useState<number | null>(null);
   const [submitted, setSubmitted] = useState(false);
 
   // Preloaded scenario data cache for determining available actions per chart
   const scenarioDataCache = useRef<Record<string, ScenarioData>>({});
+  const advanceTimeoutRef = useRef<number | null>(null);
 
   // Load index on mount
   useEffect(() => {
@@ -1015,7 +1019,10 @@ export default function DrillPage() {
     setFlashResult(answer.isCorrect ? 'correct' : 'incorrect');
 
     if (answer.isCorrect) {
-      setTimeout(() => advanceToNext(allAnswersWithCurrent), 1000);
+      advanceTimeoutRef.current = window.setTimeout(() => {
+        advanceTimeoutRef.current = null;
+        advanceToNext(allAnswersWithCurrent);
+      }, 1000);
     }
     // Wrong → no setTimeout; user drives the pace via the Next / View Chart buttons.
   }, [submitted, questions, currentIdx, answers, advanceToNext]);
@@ -1218,8 +1225,38 @@ export default function DrillPage() {
   // Render: Phase - Quiz
   // ---------------------------------------------------------------------------
   if (phase === 'quiz') {
-    const question = questions[currentIdx];
+    const isReviewing = reviewingIdx !== null;
+    const displayIdx = isReviewing ? reviewingIdx : currentIdx;
+    const question = questions[displayIdx];
+    const reviewingAnswer = isReviewing ? answers[reviewingIdx] : null;
     const progressPct = ((currentIdx + 1) / questions.length) * 100;
+
+    // Navigation handlers for back/forward arrows.
+    const canGoBack = displayIdx > 0;
+    const canGoForward = isReviewing; // only in review mode can we step forward
+    const goBack = () => {
+      if (!canGoBack) return;
+      // If a correct-answer auto-advance is pending, cancel it so the user
+      // doesn't get snapped forward while reviewing.
+      if (advanceTimeoutRef.current !== null) {
+        clearTimeout(advanceTimeoutRef.current);
+        advanceTimeoutRef.current = null;
+      }
+      setFlashResult(null);
+      setShowChart(false);
+      setReviewingIdx(displayIdx - 1);
+    };
+    const goForward = () => {
+      if (!isReviewing) return;
+      setShowChart(false);
+      // If forward reaches the live question, exit review mode.
+      const nextIdx = reviewingIdx + 1;
+      setReviewingIdx(nextIdx >= currentIdx ? null : nextIdx);
+    };
+    const resumeLive = () => {
+      setShowChart(false);
+      setReviewingIdx(null);
+    };
 
     return (
       <div className="fixed inset-x-0 top-14 bottom-[56px] md:bottom-0 text-white flex flex-col z-40" style={{ background: 'radial-gradient(ellipse at 50% 0%, #1a2332 0%, #0c1118 50%, #080d12 100%)' }}>
@@ -1252,14 +1289,41 @@ export default function DrillPage() {
 
         <div className="flex-1 flex flex-col max-w-xl mx-auto w-full px-5 pb-[env(safe-area-inset-bottom,0px)] overflow-hidden">
 
-          {/* ── Scenario heading ── */}
-          <div className="pt-4 pb-2 shrink-0 text-center">
-            <h1 className="text-lg font-extrabold tracking-tight text-sky-400">
-              {SCENARIO_LABELS[question.scenario] || question.scenario}
-            </h1>
-            <div className="text-[10px] text-white/40 font-medium tracking-[0.2em] uppercase mt-1">
-              {currentIdx + 1} / {questions.length}
+          {/* ── Scenario heading with nav arrows ── */}
+          <div className="pt-3 pb-2 shrink-0 flex items-center justify-between">
+            <button
+              onClick={goBack}
+              disabled={!canGoBack}
+              aria-label="上一题"
+              className={`w-10 h-10 rounded-lg flex items-center justify-center text-xl transition-all ${
+                canGoBack ? 'text-white/80 hover:bg-white/10 active:scale-95' : 'text-white/20'
+              }`}
+            >
+              ←
+            </button>
+            <div className="text-center">
+              <h1 className="text-lg font-extrabold tracking-tight text-sky-400">
+                {SCENARIO_LABELS[question.scenario] || question.scenario}
+              </h1>
+              <div className="text-[10px] font-medium tracking-[0.2em] uppercase mt-1 flex items-center justify-center gap-1.5">
+                <span className="text-white/40">
+                  {displayIdx + 1} / {questions.length}
+                </span>
+                {isReviewing && (
+                  <span className="text-amber-400 normal-case font-semibold tracking-normal">· 回看</span>
+                )}
+              </div>
             </div>
+            <button
+              onClick={goForward}
+              disabled={!canGoForward}
+              aria-label="下一题"
+              className={`w-10 h-10 rounded-lg flex items-center justify-center text-xl transition-all ${
+                canGoForward ? 'text-white/80 hover:bg-white/10 active:scale-95' : 'text-white/20'
+              }`}
+            >
+              →
+            </button>
           </div>
 
           {/* ── Poker Table (GTO Wizard-style) ── */}
@@ -1275,38 +1339,77 @@ export default function DrillPage() {
 
           {/* ── Action Buttons (one-tap answer, auto-submit) ── */}
           <div className="pb-4 md:pb-6 shrink-0 space-y-3">
+            {/* In review mode, show previous availableActions is fine because
+                scenario/chart are the same structure — but we display the
+                action set for the CURRENT display question. Since availableActions
+                only updates on advance, in review it still shows live actions.
+                For accuracy show the actions actually in the reviewed answer's chart. */}
             <div className="flex flex-wrap gap-2">
-              {availableActions.map((action) => {
-                const isSelected = selectedAction === action;
-                const color = ACTION_COLORS[action] || '#888';
-                return (
-                  <button
-                    key={action}
-                    onClick={() => submitAnswer(action)}
-                    disabled={submitted}
-                    className={`flex-1 min-w-[calc(33%-8px)] py-5 px-3 rounded-xl text-xl font-extrabold tracking-wide transition-all duration-200 ${
-                      submitted ? 'opacity-60 cursor-not-allowed' : 'cursor-pointer active:scale-95'
-                    }`}
-                    style={{
-                      background: isSelected
-                        ? `linear-gradient(135deg, ${color}, ${color}cc)`
-                        : 'rgba(255,255,255,0.04)',
-                      border: `1.5px solid ${isSelected ? color : 'rgba(255,255,255,0.08)'}`,
-                      color: isSelected ? '#fff' : color,
-                      boxShadow: isSelected
-                        ? `0 4px 20px ${color}40, 0 0 40px ${color}15`
-                        : 'none',
-                      transform: isSelected ? 'scale(1.03)' : 'scale(1)',
-                    }}
-                  >
-                    {ACTION_LABELS[action] || action}
-                  </button>
-                );
-              })}
+              {(() => {
+                // Derive action set from the displayed chart so review mode is faithful.
+                const chartData = scenarioDataCache.current[question.scenario];
+                const chart = chartData?.charts.find((c) => c.id === question.chartId);
+                const actions = chart ? getAvailableActions(chart) : availableActions;
+                return actions.map((action) => {
+                  // In review mode, highlight the user's past pick (correct = green ring, wrong = red ring).
+                  const reviewPicked = isReviewing && reviewingAnswer?.selectedAction === action;
+                  const reviewCorrect = isReviewing && reviewingAnswer?.isCorrect;
+                  // In live mode, highlight the selected action pre-submit.
+                  const liveSelected = !isReviewing && selectedAction === action;
+                  const isSelected = reviewPicked || liveSelected;
+                  const color = ACTION_COLORS[action] || '#888';
+                  const disabled = isReviewing || submitted;
+                  return (
+                    <button
+                      key={action}
+                      onClick={() => !disabled && submitAnswer(action)}
+                      disabled={disabled}
+                      className={`flex-1 min-w-[calc(33%-8px)] py-5 px-3 rounded-xl text-xl font-extrabold tracking-wide transition-all duration-200 ${
+                        disabled ? 'cursor-not-allowed' : 'cursor-pointer active:scale-95'
+                      } ${disabled && !isSelected ? 'opacity-40' : ''}`}
+                      style={{
+                        background: isSelected
+                          ? `linear-gradient(135deg, ${color}, ${color}cc)`
+                          : 'rgba(255,255,255,0.04)',
+                        border: `2px solid ${
+                          reviewPicked
+                            ? (reviewCorrect ? '#22c55e' : '#ef4444')
+                            : (isSelected ? color : 'rgba(255,255,255,0.08)')
+                        }`,
+                        color: isSelected ? '#fff' : color,
+                        boxShadow: isSelected
+                          ? `0 4px 20px ${color}40, 0 0 40px ${color}15`
+                          : 'none',
+                        transform: isSelected ? 'scale(1.03)' : 'scale(1)',
+                      }}
+                    >
+                      {ACTION_LABELS[action] || action}
+                    </button>
+                  );
+                });
+              })()}
             </div>
 
-            {/* Post-wrong-answer controls: stop auto-advance, let user study. */}
-            {submitted && flashResult === 'incorrect' && (
+            {/* Review-mode controls: always offer the chart + resume shortcut. */}
+            {isReviewing && (
+              <div className="flex gap-2">
+                <button
+                  onClick={() => setShowChart(true)}
+                  className="flex-1 py-3 rounded-xl text-base font-bold border-2 border-sky-400/50 text-sky-300 bg-sky-500/10 hover:bg-sky-500/20 active:scale-95 transition-all"
+                >
+                  查看正确范围
+                </button>
+                <button
+                  onClick={resumeLive}
+                  className="flex-1 py-3 rounded-xl text-base font-bold bg-white/10 text-white border-2 border-white/20 hover:bg-white/15 active:scale-95 transition-all"
+                >
+                  返回答题 ⟳
+                </button>
+              </div>
+            )}
+
+            {/* Live post-wrong-answer controls: stop auto-advance, let user study. */}
+            {!isReviewing && submitted && flashResult === 'incorrect' && (
               <div className="flex gap-2">
                 <button
                   onClick={() => setShowChart(true)}
@@ -1325,9 +1428,10 @@ export default function DrillPage() {
           </div>
         </div>
 
-        {/* Range chart modal */}
+        {/* Range chart modal — uses the currently DISPLAYED question
+            (live or reviewed), not necessarily the live index. */}
         {showChart && (() => {
-          const q = questions[currentIdx];
+          const q = question;
           const data = scenarioDataCache.current[q.scenario];
           const chart = data?.charts.find((c) => c.id === q.chartId);
           if (!chart) return null;
