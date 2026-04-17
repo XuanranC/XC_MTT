@@ -764,14 +764,18 @@ function StackDepthComparison({
 // ---------------------------------------------------------------------------
 
 function LearnByBB({
-  scenarioData, bbs,
+  scenarioData, bbs, initialBb,
 }: {
-  scenarioData: ScenarioData; bbs: number[];
+  scenarioData: ScenarioData; bbs: number[]; initialBb?: number;
 }) {
   const blind = isBlindScenario(scenarioData.scenario);
   const multi = isMultiVsScenario(scenarioData.scenario);
   const multiActionLabel = multi ? MULTI_VS_SCENARIOS[scenarioData.scenario] : '';
-  const [selectedBb, setSelectedBb] = useState(() => bbs.find(b => b === 20) ?? bbs[Math.floor(bbs.length / 2)]);
+  // Prefer the BB passed from URL (drill deep-link). Fall back to 20 or mid.
+  const [selectedBb, setSelectedBb] = useState(() => {
+    if (initialBb && bbs.includes(initialBb)) return initialBb;
+    return bbs.find(b => b === 20) ?? bbs[Math.floor(bbs.length / 2)];
+  });
   const [selectedVs, setSelectedVs] = useState<string | undefined>(
     scenarioData.vs_positions && scenarioData.vs_positions.length > 0 ? scenarioData.vs_positions[0] : undefined
   );
@@ -1042,15 +1046,19 @@ function LearnByBB({
 // ---------------------------------------------------------------------------
 
 function LearnByPosition({
-  scenarioData,
+  scenarioData, initialPosition,
 }: {
-  scenarioData: ScenarioData;
+  scenarioData: ScenarioData; initialPosition?: string;
 }) {
   const blind = isBlindScenario(scenarioData.scenario);
   const multi = isMultiVsScenario(scenarioData.scenario);
   const multiActionLabel = multi ? MULTI_VS_SCENARIOS[scenarioData.scenario] : '';
   const positions = useMemo(() => sortPositions(scenarioData.positions), [scenarioData.positions]);
-  const [selectedPosition, setSelectedPosition] = useState(positions[0]);
+  const [selectedPosition, setSelectedPosition] = useState(() => {
+    // Prefer the position passed from URL (drill deep-link).
+    if (initialPosition && positions.includes(initialPosition)) return initialPosition;
+    return positions[0];
+  });
   const [selectedSide, setSelectedSide] = useState<BlindSide>('SB');
   const [selectedBlindAction, setSelectedBlindAction] = useState<BlindAction>('Open');
   const [multiOpener, setMultiOpener] = useState<string>('');
@@ -1570,11 +1578,11 @@ export default function StudyScenarioPage({
         )}
 
         {viewMode === 'byBB' && (
-          <LearnByBB scenarioData={scenarioData} bbs={scenarioData.bbs} />
+          <LearnByBB scenarioData={scenarioData} bbs={scenarioData.bbs} initialBb={bb} />
         )}
 
         {viewMode === 'byPosition' && (
-          <LearnByPosition scenarioData={scenarioData} />
+          <LearnByPosition scenarioData={scenarioData} initialPosition={position} />
         )}
       </main>
     </div>
