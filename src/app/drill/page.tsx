@@ -401,6 +401,11 @@ function RangeMatrixModal({
 }: {
   chart: Chart; title: string; highlightHand: string; onClose: () => void;
 }) {
+  const focusHand = chart.hands[highlightHand];
+  const focusActions = focusHand ? getHandActions(focusHand) : [];
+  const reach = focusHand?.reach ?? 100;
+  const isConditional = reach < 99.5;
+
   return (
     <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/85 backdrop-blur-sm p-3" onClick={onClose}>
       <div className="bg-slate-900 rounded-xl w-full max-w-lg shadow-2xl border border-white/10" onClick={(e) => e.stopPropagation()}>
@@ -408,6 +413,47 @@ function RangeMatrixModal({
           <div className="text-sm font-bold text-white">{title}</div>
           <button onClick={onClose} className="text-white/70 hover:text-white text-2xl leading-none px-2">&times;</button>
         </div>
+
+        {/* Focus hand detail — shows exact frequencies for the hand the user just answered */}
+        <div className="px-4 pt-3 pb-2 border-b border-white/5">
+          <div className="flex items-baseline gap-3 mb-2">
+            <span className="text-2xl font-extrabold text-white font-mono">{highlightHand}</span>
+            {isConditional && (
+              <span className="text-[10px] font-mono text-amber-400/80">
+                reach {reach.toFixed(0)}%
+              </span>
+            )}
+          </div>
+          {focusActions.length === 0 ? (
+            <div className="text-sm text-white/50">此手牌在此节点不涉及</div>
+          ) : (
+            <div className="space-y-1.5">
+              {focusActions.map((a) => {
+                const normalized = reach > 0.5 ? (a.pct / reach) * 100 : 0;
+                const color = ACTION_COLORS[a.action] ?? '#888';
+                return (
+                  <div key={a.action} className="flex items-center gap-2">
+                    <div className="w-2.5 h-2.5 rounded-sm shrink-0" style={{ backgroundColor: color }} />
+                    <span className="text-xs text-white/70 w-12 shrink-0">{ACTION_LABELS[a.action] || a.action}</span>
+                    <div className="flex-1 h-2 bg-white/5 rounded-full overflow-hidden">
+                      <div className="h-full rounded-full" style={{ width: `${normalized}%`, background: color }} />
+                    </div>
+                    <span className="text-sm font-bold font-mono w-14 text-right" style={{ color }}>
+                      {normalized.toFixed(0)}%
+                    </span>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+          {focusHand?.ev !== undefined && (
+            <div className="mt-2 text-[11px] text-white/40">
+              EV: <span className="text-white/70 font-mono">{focusHand.ev.toFixed(2)} bb</span>
+            </div>
+          )}
+        </div>
+
+        {/* Full range matrix */}
         <div className="p-3">
           <div className="aspect-square w-full">
             <div className="grid h-full w-full gap-px"
