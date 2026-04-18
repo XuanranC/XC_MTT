@@ -893,6 +893,8 @@ export default function DrillPage() {
   const [availableActions, setAvailableActions] = useState<string[]>([]);
   const [flashResult, setFlashResult] = useState<'correct' | 'incorrect' | null>(null);
   const [showChart, setShowChart] = useState(false);
+  // Review phase: which answer card's range-matrix modal is open (null ⇒ closed)
+  const [reviewChartIdx, setReviewChartIdx] = useState<number | null>(null);
   // Review mode: browse previously answered questions without advancing the
   // live drill. null ⇒ live at currentIdx. Number ⇒ viewing answers[n].
   const [reviewingIdx, setReviewingIdx] = useState<number | null>(null);
@@ -1548,6 +1550,14 @@ export default function DrillPage() {
                           })}
                         </div>
                       </div>
+
+                      {/* View correct range button — opens the same RangeMatrixModal used in quiz phase */}
+                      <button
+                        onClick={() => setReviewChartIdx(i)}
+                        className="w-fit text-xs font-semibold px-3 py-1.5 rounded-lg border border-sky-400/40 text-sky-300 bg-sky-500/10 hover:bg-sky-500/20 active:scale-95 transition-all"
+                      >
+                        查看正确范围
+                      </button>
                     </div>
                   </div>
                 </div>
@@ -1582,6 +1592,29 @@ export default function DrillPage() {
             </button>
           </div>
         </div>
+
+        {/* Per-answer range-matrix modal (review phase) */}
+        {reviewChartIdx !== null && (() => {
+          const a = answers[reviewChartIdx];
+          if (!a) return null;
+          const q = a.question;
+          const data = scenarioDataCache.current[q.scenario];
+          const chart = data?.charts.find((c) => c.id === q.chartId);
+          if (!chart) return null;
+          const title = `${SCENARIO_LABELS[q.scenario] || q.scenario} · ${q.position}${q.vs ? ` vs ${q.vs}` : ''} · ${q.bb}bb`;
+          return (
+            <RangeMatrixModal
+              chart={chart}
+              title={title}
+              highlightHand={q.hand}
+              scenario={q.scenario}
+              position={q.position}
+              vs={q.vs}
+              bb={q.bb}
+              onClose={() => setReviewChartIdx(null)}
+            />
+          );
+        })()}
       </div>
     );
   }
