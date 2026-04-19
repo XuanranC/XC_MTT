@@ -198,13 +198,14 @@ interface TableAction {
   villainSeat: Seat | null;     // Main aggressor facing hero (chip indicator shown here)
   villainLabel: string;         // e.g., "RAISE 2.5", "3-BET 8", "ALLIN"
   villainColor: string;         // Bet chip color
-  thirdSeat?: Seat | null;      // For multi-vs scenarios (the opener)
+  thirdSeat?: Seat | null;      // Secondary action chip (multi-vs opener, or hero's prior action in BVB)
   thirdLabel?: string;          // e.g., "RAISE 2.5"
+  thirdColor?: string;          // Chip background for the third label (defaults to raise yellow)
   foldedSeats: Set<Seat>;       // Seats that folded earlier in the street
   bbInPot: number;              // Pot size in bb (approximate)
 }
 
-function deriveAction(scenario: string, heroSeat: Seat | null, vs: string | undefined, bb: number): TableAction {
+function deriveAction(scenario: string, heroSeat: Seat | null, vs: string | undefined, bb: number, heroPos?: string): TableAction {
   const heroIdx = heroSeat ? SEAT_ORDER.indexOf(heroSeat) : -1;
   const villainSeat = toSeat(vs);
   const folded = new Set<Seat>();
@@ -281,21 +282,49 @@ function deriveAction(scenario: string, heroSeat: Seat | null, vs: string | unde
   }
 
   if (scenario === 'BVB' || scenario === 'HU_OFFLINE_ANTE' || scenario === 'HU_ONLINE') {
-    // Heads-up: only SB and BB seats active; action from vs encoding
-    const vsAction = vs || 'Open';
-    let label = 'OPEN';
-    let color = '#eab308';
-    if (vsAction === 'LR' || vsAction === 'R') { label = 'RAISE'; color = '#eab308'; }
-    else if (vsAction === 'LA' || vsAction === 'A') { label = 'ALLIN'; color = '#dc2626'; }
-    else if (vsAction === 'R3') { label = '3-BET'; color = '#f97316'; }
-    else if (vsAction === 'RA') { label = 'ALLIN'; color = '#dc2626'; }
-    else if (vsAction === 'L') { label = 'LIMP'; color = '#22c55e'; }
-    // Villain is the other blind
-    const villainOther: Seat | null = heroSeat === 'SB' ? 'BB' : 'SB';
-    // Everyone else folded
+    // Heads-up: only SB and BB seats active. The action context is encoded
+    // in the hero POSITION suffix (e.g. BB_A = BB facing SB All-in; SB_LR =
+    // SB facing BB raise after SB limp). `vs` is null in all BVB chart JSON
+    // so we parse heroPos instead.
     for (const s of SEAT_ORDER) if (s !== 'SB' && s !== 'BB') folded.add(s);
-    return { villainSeat: heroSeat === 'BB' ? villainOther : (vsAction === 'Open' ? null : villainOther),
-      villainLabel: vsAction === 'Open' ? '' : label, villainColor: color, foldedSeats: folded, bbInPot: 1.5 };
+
+    // Suffix: "BB_A" -> "A", "SB_LR" -> "LR", "SB" -> ""
+    const suffix = heroPos && heroPos.includes('_') ? heroPos.split('_')[1] ?? '' : '';
+    const villainOther: Seat | null = heroSeat === 'SB' ? 'BB' : 'SB';
+
+    // Villain's most recent action — what hero is responding to.
+    const villainActionByPos: Record<string, { label: string; color: string }> = {
+      A:  { label: 'ALLIN', color: '#dc2626' },   // BB_A  → SB shoved
+      L:  { label: 'LIMP',  color: '#22c55e' },   // BB_L  → SB limped
+      R:  { label: 'RAISE', color: '#eab308' },   // BB_R  → SB raised
+      LA: { label: 'ALLIN', color: '#dc2626' },   // SB_LA → BB shoved over limp
+      LR: { label: 'RAISE', color: '#eab308' },   // SB_LR → BB raised over limp
+      R3: { label: '3-BET', color: '#f97316' },   // SB_R3 → BB 3-bet
+      RA: { label: 'ALLIN', color: '#dc2626' },   // SB_RA → BB shoved over raise
+    };
+    const vv = villainActionByPos[suffix];
+
+    // Hero's own prior action (SB_L* / SB_R* — hero already limped or raised
+    // once before the villain responded). Rendered on hero's chip so the
+    // reader can reconstruct the full action tree at a glance.
+    const heroPriorByPos: Record<string, { label: string; color: string }> = {
+      LA: { label: 'LIMP',  color: '#22c55e' },
+      LR: { label: 'LIMP',  color: '#22c55e' },
+      R3: { label: 'RAISE', color: '#eab308' },
+      RA: { label: 'RAISE', color: '#eab308' },
+    };
+    const heroPrior = heroPriorByPos[suffix];
+
+    return {
+      villainSeat: vv ? villainOther : null,
+      villainLabel: vv?.label ?? '',
+      villainColor: vv?.color ?? '',
+      thirdSeat: heroPrior && heroSeat ? heroSeat : undefined,
+      thirdLabel: heroPrior?.label,
+      thirdColor: heroPrior?.color,
+      foldedSeats: folded,
+      bbInPot: 1.5,
+    };
   }
 
   if (multi) {
@@ -380,7 +409,7 @@ function PokerTable({
   scenario: string; heroPos: string; vs: string | undefined; bb: number; hand: string;
 }) {
   const heroSeat = toSeat(heroPos);
-  const action = deriveAction(scenario, heroSeat, vs, bb);
+  const action = deriveAction(scenario, heroSeat, vs, bb, heroPos);
   // Determine which seats to render: the 8 standard seats, dim those clearly not in play for this scenario.
   // For HU scenarios only show SB and BB.
   const isHU = scenario === 'HU_OFFLINE_ANTE' || scenario === 'HU_ONLINE' || scenario === 'BVB';
@@ -452,14 +481,17 @@ function PokerTable({
                 </div>
               </div>
             )}
-            {isThird && action.thirdLabel && (
-              <div className="absolute left-1/2 -translate-x-1/2 top-[100%] mt-1.5 whitespace-nowrap">
-                <div className="px-2 py-1 rounded-md text-[11px] font-extrabold tracking-wide"
-                  style={{ background: '#eab308', color: '#fff', boxShadow: '0 2px 10px rgba(234,179,8,0.5)' }}>
-                  {action.thirdLabel}
+            {isThird && action.thirdLabel && (() => {
+              const thirdColor = action.thirdColor ?? '#eab308';
+              return (
+                <div className="absolute left-1/2 -translate-x-1/2 top-[100%] mt-1.5 whitespace-nowrap">
+                  <div className="px-2 py-1 rounded-md text-[11px] font-extrabold tracking-wide"
+                    style={{ background: thirdColor, color: '#fff', boxShadow: `0 2px 10px ${thirdColor}80` }}>
+                    {action.thirdLabel}
+                  </div>
                 </div>
-              </div>
-            )}
+              );
+            })()}
 
             {/* Blinds for SB/BB */}
             {!isFolded && !isHero && !isVillain && !isThird && seat === 'SB' && !isHU && (
@@ -470,11 +502,12 @@ function PokerTable({
             )}
 
             {/* Hero's cards — placed below the seat label (hero always sits at bottom) */}
-            {isHero && (
-              <div className="absolute left-1/2 top-[100%] -translate-x-1/2 mt-3">
-                <HandCards hand={hand} />
-              </div>
-            )}
+            {/* Hero cards are rendered OUTSIDE the table container as a
+                sibling row (see drill/page.tsx render). Doing so keeps them
+                in the normal flex flow so they can never overlap the action
+                buttons — which happens in short scenarios where the table
+                compresses and the absolutely-positioned cards spill out
+                underneath the seat. */}
           </div>
         );
       })}
@@ -1173,6 +1206,11 @@ export default function DrillPage() {
               bb={question.bb}
               hand={question.hand}
             />
+          </div>
+
+          {/* ── Hero hand (dedicated row so cards never overlap action buttons) ── */}
+          <div className="flex justify-center shrink-0 pb-2">
+            <HandCards hand={question.hand} />
           </div>
 
           {/* ── Action Buttons (one-tap answer, auto-submit) ── */}
