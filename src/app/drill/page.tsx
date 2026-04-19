@@ -536,13 +536,23 @@ function PokerTable({
               );
             })()}
 
-            {/* Blinds for SB/BB */}
-            {!isFolded && !isHero && !isVillain && !isThird && seat === 'SB' && !isHU && (
-              <div className="absolute left-1/2 -translate-x-1/2 top-[100%] mt-1 text-[11px] font-semibold text-white/60">0.5 bb</div>
-            )}
-            {!isFolded && !isHero && !isVillain && !isThird && seat === 'BB' && !isHU && (
-              <div className="absolute left-1/2 -translate-x-1/2 top-[100%] mt-1 text-[11px] font-semibold text-white/60">1 bb</div>
-            )}
+            {/* Committed-bb chip for any seat that has money in the pot but
+                isn't already showing a custom action chip (villain or third).
+                Covers blinds (SB 0.5, BB 1) and any passive sizing that falls
+                through to just the forced post. Styled as the call/limp green
+                so the bb total reads as "in-pot", not as an aggressive action. */}
+            {!isFolded && !isVillain && !isThird && (action.committed[seat] ?? 0) > 0 && (() => {
+              const amt = action.committed[seat] ?? 0;
+              const formatted = Number.isInteger(amt) ? `${amt}` : amt.toFixed(1);
+              return (
+                <div className="absolute left-1/2 -translate-x-1/2 top-[100%] mt-1.5 whitespace-nowrap">
+                  <div className="px-2 py-1 rounded-md text-[11px] font-extrabold tracking-wide"
+                    style={{ background: '#22c55e', color: '#fff', boxShadow: '0 2px 10px rgba(34,197,94,0.5)' }}>
+                    {formatted} bb
+                  </div>
+                </div>
+              );
+            })()}
 
             {/* Hero's cards — placed below the seat label (hero always sits at bottom) */}
             {/* Hero cards are rendered OUTSIDE the table container as a
