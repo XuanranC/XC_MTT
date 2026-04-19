@@ -196,10 +196,10 @@ function seatCoord(seat: Seat, heroSeat: Seat | null): { leftPct: number; topPct
 // Action context derived from scenario + hero + villain
 interface TableAction {
   villainSeat: Seat | null;     // Main aggressor facing hero (chip indicator shown here)
-  villainLabel: string;         // e.g., "RAISE 2.5", "3-BET 8", "ALLIN"
+  villainLabel: string;         // Bet size committed in bb (e.g. "2.5 bb", "8 bb"). Blank ⇒ no chip.
   villainColor: string;         // Bet chip color
   thirdSeat?: Seat | null;      // Secondary action chip (multi-vs opener, or hero's prior action in BVB)
-  thirdLabel?: string;          // e.g., "RAISE 2.5"
+  thirdLabel?: string;          // Bet size committed in bb (e.g. "2.5 bb", "1 bb")
   thirdColor?: string;          // Chip background for the third label (defaults to raise yellow)
   foldedSeats: Set<Seat>;       // Seats that folded earlier in the street
   bbInPot: number;              // Pot size in bb (approximate)
@@ -253,7 +253,7 @@ function deriveAction(scenario: string, heroSeat: Seat | null, vs: string | unde
       }
     }
     pot = 1.5 + 2.5; // villain open 2.5bb
-    return { villainSeat, villainLabel: `RAISE 2.5`, villainColor: '#eab308', foldedSeats: folded, bbInPot: pot };
+    return { villainSeat, villainLabel: `2.5 bb`, villainColor: '#eab308', foldedSeats: folded, bbInPot: pot };
   }
 
   if (scenario === 'VS_3BET') {
@@ -270,15 +270,15 @@ function deriveAction(scenario: string, heroSeat: Seat | null, vs: string | unde
       }
     }
     pot = 1.5 + 2.5 + 8;
-    return { villainSeat, villainLabel: `3-BET 8`, villainColor: '#ef4444', foldedSeats: folded, bbInPot: pot };
+    return { villainSeat, villainLabel: `8 bb`, villainColor: '#ef4444', foldedSeats: folded, bbInPot: pot };
   }
 
   if (scenario === 'CALL_ALLIN') {
-    return { villainSeat, villainLabel: `ALLIN ${bb}`, villainColor: '#dc2626', foldedSeats: folded, bbInPot: bb + 1.5 };
+    return { villainSeat, villainLabel: `${bb} bb`, villainColor: '#dc2626', foldedSeats: folded, bbInPot: bb + 1.5 };
   }
 
   if (scenario === 'CALL_REJAM') {
-    return { villainSeat, villainLabel: `RE-JAM ${bb}`, villainColor: '#dc2626', foldedSeats: folded, bbInPot: bb + 1.5 };
+    return { villainSeat, villainLabel: `${bb} bb`, villainColor: '#dc2626', foldedSeats: folded, bbInPot: bb + 1.5 };
   }
 
   if (scenario === 'BVB' || scenario === 'HU_OFFLINE_ANTE' || scenario === 'HU_ONLINE') {
@@ -292,26 +292,29 @@ function deriveAction(scenario: string, heroSeat: Seat | null, vs: string | unde
     const suffix = heroPos && heroPos.includes('_') ? heroPos.split('_')[1] ?? '' : '';
     const villainOther: Seat | null = heroSeat === 'SB' ? 'BB' : 'SB';
 
-    // Villain's most recent action — what hero is responding to.
+    // Villain's most recent action — labelled as the bb committed so the
+    // reader reads strategy off pot odds rather than parsing a verb. Color
+    // still encodes action type (green=limp/call, yellow=raise, red=allin).
+    // Sizing: BVB opens 2x, 3-bet to ~6bb (3x), BB raise over limp ~3.5bb.
     const villainActionByPos: Record<string, { label: string; color: string }> = {
-      A:  { label: 'ALLIN', color: '#dc2626' },   // BB_A  → SB shoved
-      L:  { label: 'LIMP',  color: '#22c55e' },   // BB_L  → SB limped
-      R:  { label: 'RAISE', color: '#eab308' },   // BB_R  → SB raised
-      LA: { label: 'ALLIN', color: '#dc2626' },   // SB_LA → BB shoved over limp
-      LR: { label: 'RAISE', color: '#eab308' },   // SB_LR → BB raised over limp
-      R3: { label: '3-BET', color: '#f97316' },   // SB_R3 → BB 3-bet
-      RA: { label: 'ALLIN', color: '#dc2626' },   // SB_RA → BB shoved over raise
+      A:  { label: `${bb} bb`, color: '#dc2626' },   // BB_A  → SB shoved
+      L:  { label: '1 bb',     color: '#22c55e' },   // BB_L  → SB limped (completed to 1 bb)
+      R:  { label: '2 bb',     color: '#eab308' },   // BB_R  → SB raised to 2x
+      LA: { label: `${bb} bb`, color: '#dc2626' },   // SB_LA → BB shoved over limp
+      LR: { label: '3.5 bb',   color: '#eab308' },   // SB_LR → BB raised over limp (~3.5x)
+      R3: { label: '6 bb',     color: '#f97316' },   // SB_R3 → BB 3-bet (SB 2x → 6)
+      RA: { label: `${bb} bb`, color: '#dc2626' },   // SB_RA → BB shoved over raise
     };
     const vv = villainActionByPos[suffix];
 
     // Hero's own prior action (SB_L* / SB_R* — hero already limped or raised
-    // once before the villain responded). Rendered on hero's chip so the
-    // reader can reconstruct the full action tree at a glance.
+    // once before the villain responded). Rendered on hero's chip as the bb
+    // committed so the full action tree reads "1 bb → 3.5 bb → hero acts".
     const heroPriorByPos: Record<string, { label: string; color: string }> = {
-      LA: { label: 'LIMP',  color: '#22c55e' },
-      LR: { label: 'LIMP',  color: '#22c55e' },
-      R3: { label: 'RAISE', color: '#eab308' },
-      RA: { label: 'RAISE', color: '#eab308' },
+      LA: { label: '1 bb', color: '#22c55e' },   // SB limped
+      LR: { label: '1 bb', color: '#22c55e' },   // SB limped
+      R3: { label: '2 bb', color: '#eab308' },   // SB opened 2x
+      RA: { label: '2 bb', color: '#eab308' },   // SB opened 2x
     };
     const heroPrior = heroPriorByPos[suffix];
 
@@ -333,11 +336,11 @@ function deriveAction(scenario: string, heroSeat: Seat | null, vs: string | unde
     const actor2Seat = toSeat(multi.actor2);
     const openerIdx = openerSeat ? SEAT_ORDER.indexOf(openerSeat) : -1;
     const actor2Idx = actor2Seat ? SEAT_ORDER.indexOf(actor2Seat) : -1;
-    let actionLabel = 'CALL';
-    let actionColor = '#22c55e';
-    let actionAmount = '2.5';
-    if (scenario === 'VS_OPEN_3BET') { actionLabel = '3-BET'; actionColor = '#ef4444'; actionAmount = '8'; }
-    if (scenario === 'VS_OPEN_ALLIN') { actionLabel = 'ALLIN'; actionColor = '#dc2626'; actionAmount = `${bb}`; }
+    // Chip color still encodes action type; label is just the bb committed.
+    let actionColor = '#22c55e';  // green = call
+    let actionAmount = '2.5';     // VS_OPEN_CALL matches opener
+    if (scenario === 'VS_OPEN_3BET') { actionColor = '#ef4444'; actionAmount = '8'; }
+    if (scenario === 'VS_OPEN_ALLIN') { actionColor = '#dc2626'; actionAmount = `${bb}`; }
     // Fold everyone before opener
     if (openerIdx >= 0) markFoldedFromUtgTo(openerIdx);
     // Between opener+1 and actor2 fold
@@ -361,10 +364,10 @@ function deriveAction(scenario: string, heroSeat: Seat | null, vs: string | unde
     pot = 1.5 + 2.5 + (scenario === 'VS_OPEN_CALL' ? 2.5 : scenario === 'VS_OPEN_3BET' ? 8 : bb);
     return {
       villainSeat: actor2Seat,
-      villainLabel: `${actionLabel} ${actionAmount}`,
+      villainLabel: `${actionAmount} bb`,
       villainColor: actionColor,
       thirdSeat: openerSeat,
-      thirdLabel: `RAISE 2.5`,
+      thirdLabel: `2.5 bb`,
       foldedSeats: folded,
       bbInPot: pot,
     };
