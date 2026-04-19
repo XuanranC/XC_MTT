@@ -1198,7 +1198,12 @@ export default function DrillPage() {
           </div>
 
           {/* ── Poker Table (GTO Wizard-style) ── */}
-          <div className="flex-1 flex flex-col items-center justify-center min-h-0 py-2">
+          {/* Table + hero cards centered as a unit — cards sit immediately
+              below the table (and thus the hero seat, which is always at
+              bottom-center) so the visual connection between hero and hand
+              stays tight, while still living in normal flow so they can't
+              overlap the action-button row below. */}
+          <div className="flex-1 flex flex-col items-center justify-center min-h-0 py-2 gap-1">
             <PokerTable
               scenario={question.scenario}
               heroPos={question.position}
@@ -1206,10 +1211,6 @@ export default function DrillPage() {
               bb={question.bb}
               hand={question.hand}
             />
-          </div>
-
-          {/* ── Hero hand (dedicated row so cards never overlap action buttons) ── */}
-          <div className="flex justify-center shrink-0 pb-2">
             <HandCards hand={question.hand} />
           </div>
 
