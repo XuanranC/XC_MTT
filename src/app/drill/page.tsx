@@ -202,7 +202,8 @@ interface TableAction {
   thirdLabel?: string;          // Bet size committed in bb (e.g. "2.5 bb", "1 bb")
   thirdColor?: string;          // Chip background for the third label (defaults to raise yellow)
   foldedSeats: Set<Seat>;       // Seats that folded earlier in the street
-  bbInPot: number;              // Pot size in bb (approximate)
+  committed: Partial<Record<Seat, number>>; // bb each seat has put into the pot so far
+  bbInPot: number;              // Total pot size = Σ committed (bb)
 }
 
 function deriveAction(scenario: string, heroSeat: Seat | null, vs: string | undefined, bb: number, heroPos?: string): TableAction {
@@ -223,8 +224,10 @@ function deriveAction(scenario: string, heroSeat: Seat | null, vs: string | unde
     }
   }
 
-  // Pot defaults: 0.5 SB + 1 BB = 1.5bb
-  let pot = 1.5;
+  // Blinds are always posted (the two HU branches override this mapping below
+  // for scenarios where SB or BB has committed more than their blind).
+  const committed: Partial<Record<Seat, number>> = { SB: 0.5, BB: 1 };
+  const sumCommitted = () => Object.values(committed).reduce((a, b) => a + (b ?? 0), 0);
 
   // Parse multi-vs: actor2_over_opener
   let multi: { actor2: string; opener: string } | null = null;
@@ -234,9 +237,9 @@ function deriveAction(scenario: string, heroSeat: Seat | null, vs: string | unde
   }
 
   if (scenario === 'RFI' && heroIdx >= 0) {
-    // Everyone before hero folded
+    // Everyone before hero folded — only the blinds have been posted.
     markFoldedFromUtgTo(heroIdx);
-    return { villainSeat: null, villainLabel: '', villainColor: '', foldedSeats: folded, bbInPot: pot };
+    return { villainSeat: null, villainLabel: '', villainColor: '', foldedSeats: folded, committed, bbInPot: sumCommitted() };
   }
 
   if (scenario === 'VS_OPEN_BB' || scenario === 'VS_OPEN_nonBB') {
@@ -252,8 +255,9 @@ function deriveAction(scenario: string, heroSeat: Seat | null, vs: string | unde
         i = (i + 1) % 8;
       }
     }
-    pot = 1.5 + 2.5; // villain open 2.5bb
-    return { villainSeat, villainLabel: `2.5 bb`, villainColor: '#eab308', foldedSeats: folded, bbInPot: pot };
+    // Villain opened 2.5bb — overrides its blind if villain is SB/BB.
+    if (villainSeat) committed[villainSeat] = 2.5;
+    return { villainSeat, villainLabel: `2.5 bb`, villainColor: '#eab308', foldedSeats: folded, committed, bbInPot: sumCommitted() };
   }
 
   if (scenario === 'VS_3BET') {
@@ -269,16 +273,22 @@ function deriveAction(scenario: string, heroSeat: Seat | null, vs: string | unde
         i = (i + 1) % 8;
       }
     }
-    pot = 1.5 + 2.5 + 8;
-    return { villainSeat, villainLabel: `8 bb`, villainColor: '#ef4444', foldedSeats: folded, bbInPot: pot };
+    // Hero opened 2.5, villain 3-bet to 8.
+    if (heroSeat) committed[heroSeat] = 2.5;
+    if (villainSeat) committed[villainSeat] = 8;
+    return { villainSeat, villainLabel: `8 bb`, villainColor: '#ef4444', foldedSeats: folded, committed, bbInPot: sumCommitted() };
   }
 
   if (scenario === 'CALL_ALLIN') {
-    return { villainSeat, villainLabel: `${bb} bb`, villainColor: '#dc2626', foldedSeats: folded, bbInPot: bb + 1.5 };
+    if (villainSeat) committed[villainSeat] = bb;
+    return { villainSeat, villainLabel: `${bb} bb`, villainColor: '#dc2626', foldedSeats: folded, committed, bbInPot: sumCommitted() };
   }
 
   if (scenario === 'CALL_REJAM') {
-    return { villainSeat, villainLabel: `${bb} bb`, villainColor: '#dc2626', foldedSeats: folded, bbInPot: bb + 1.5 };
+    // Hero raised (typically 2.5bb) and villain re-jammed for full stack.
+    if (heroSeat) committed[heroSeat] = 2.5;
+    if (villainSeat) committed[villainSeat] = bb;
+    return { villainSeat, villainLabel: `${bb} bb`, villainColor: '#dc2626', foldedSeats: folded, committed, bbInPot: sumCommitted() };
   }
 
   if (scenario === 'BVB' || scenario === 'HU_OFFLINE_ANTE' || scenario === 'HU_ONLINE') {
@@ -318,6 +328,21 @@ function deriveAction(scenario: string, heroSeat: Seat | null, vs: string | unde
     };
     const heroPrior = heroPriorByPos[suffix];
 
+    // Track bb committed per blind so stack display and pot reflect reality.
+    // Amounts match the chip labels above; ALL-IN pushes full stack.
+    const villainAmtBySuffix: Record<string, number> = {
+      A: bb, L: 1, R: 2, LA: bb, LR: 3.5, R3: 6, RA: bb,
+    };
+    const heroPriorAmtBySuffix: Record<string, number> = {
+      LA: 1, LR: 1, R3: 2, RA: 2,
+    };
+    if (vv && villainOther) {
+      committed[villainOther] = villainAmtBySuffix[suffix] ?? committed[villainOther] ?? 0;
+    }
+    if (heroPrior && heroSeat) {
+      committed[heroSeat] = heroPriorAmtBySuffix[suffix] ?? committed[heroSeat] ?? 0;
+    }
+
     return {
       villainSeat: vv ? villainOther : null,
       villainLabel: vv?.label ?? '',
@@ -326,7 +351,8 @@ function deriveAction(scenario: string, heroSeat: Seat | null, vs: string | unde
       thirdLabel: heroPrior?.label,
       thirdColor: heroPrior?.color,
       foldedSeats: folded,
-      bbInPot: 1.5,
+      committed,
+      bbInPot: sumCommitted(),
     };
   }
 
@@ -361,7 +387,9 @@ function deriveAction(scenario: string, heroSeat: Seat | null, vs: string | unde
         }
       }
     }
-    pot = 1.5 + 2.5 + (scenario === 'VS_OPEN_CALL' ? 2.5 : scenario === 'VS_OPEN_3BET' ? 8 : bb);
+    // Opener committed 2.5, actor2 committed actionAmount (numeric).
+    if (openerSeat) committed[openerSeat] = 2.5;
+    if (actor2Seat) committed[actor2Seat] = Number(actionAmount);
     return {
       villainSeat: actor2Seat,
       villainLabel: `${actionAmount} bb`,
@@ -369,11 +397,12 @@ function deriveAction(scenario: string, heroSeat: Seat | null, vs: string | unde
       thirdSeat: openerSeat,
       thirdLabel: `2.5 bb`,
       foldedSeats: folded,
-      bbInPot: pot,
+      committed,
+      bbInPot: sumCommitted(),
     };
   }
 
-  return { villainSeat, villainLabel: vs || '', villainColor: '#eab308', foldedSeats: folded, bbInPot: pot };
+  return { villainSeat, villainLabel: vs || '', villainColor: '#eab308', foldedSeats: folded, committed, bbInPot: sumCommitted() };
 }
 
 // ---------------------------------------------------------------------------
@@ -460,7 +489,18 @@ function PokerTable({
               <span className={`text-base sm:text-lg font-extrabold leading-none ${
                 isHero ? 'text-emerald-300' : isVillain ? 'text-amber-300' : isThird ? 'text-sky-300' : 'text-white/90'
               }`}>{seat}</span>
-              <span className="text-xs sm:text-sm text-white/70 font-bold leading-none mt-1">{bb} bb</span>
+              <span className="text-xs sm:text-sm text-white/70 font-bold leading-none mt-1">
+                {(() => {
+                  // Show remaining behind = starting stack minus what this
+                  // seat has already put into the pot (blinds, opens, raises,
+                  // 3-bets, all-ins). Folded seats keep their starting display.
+                  const put = action.committed[seat] ?? 0;
+                  const remaining = Math.max(0, bb - put);
+                  // Avoid trailing ".5" noise when the value is an integer.
+                  const formatted = Number.isInteger(remaining) ? `${remaining}` : remaining.toFixed(1);
+                  return `${formatted} bb`;
+                })()}
+              </span>
               {isFolded && (
                 <div className="absolute inset-0 flex items-center justify-center">
                   <div className="w-[70%] h-[2px] bg-white/30 rotate-[30deg]" />
@@ -1268,7 +1308,20 @@ export default function DrillPage() {
                         transform: isSelected ? 'scale(1.03)' : 'scale(1)',
                       }}
                     >
-                      {ACTION_LABELS[action] || action}
+                      {(() => {
+                        // BVB/HU BB facing an SB limp has "nothing to call" —
+                        // relabel the call button as "Check" so the reader
+                        // doesn't confuse it with calling a raise. Color stays
+                        // green because the internal action key is still 'call'
+                        // (and the GTO solver treats it as such).
+                        const q = question;
+                        const isBvbLimpCheck =
+                          action === 'call' &&
+                          q.position === 'BB_L' &&
+                          (q.scenario === 'BVB' || q.scenario === 'HU_OFFLINE_ANTE' || q.scenario === 'HU_ONLINE');
+                        if (isBvbLimpCheck) return 'Check';
+                        return ACTION_LABELS[action] || action;
+                      })()}
                     </button>
                   );
                 });
