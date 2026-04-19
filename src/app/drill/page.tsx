@@ -878,11 +878,11 @@ export default function DrillPage() {
   const { syncProgress } = useAuth();
 
   // Config state
-  const [selectedScenarios, setSelectedScenarios] = useState<string[]>([]);
+  const [selectedScenarios, setSelectedScenarios] = useState<string[]>(['RFI']);
   const [selectedPositions, setSelectedPositions] = useState<string[]>([]);
-  const [bbRange, setBbRange] = useState<[number, number]>([2, 100]);
+  const [bbRange, setBbRange] = useState<[number, number]>([2, 30]);
   const [questionCount, setQuestionCount] = useState(20);
-  const [mode, setMode] = useState<'random' | 'edge'>('random');
+  const [mode, setMode] = useState<'random' | 'edge'>('edge');
 
   // Quiz state
   const [questions, setQuestions] = useState<DrillQuestion[]>([]);
