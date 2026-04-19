@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { Suspense, useState, useEffect, useCallback, useRef } from 'react';
 import { useSearchParams } from 'next/navigation';
 import {
   IndexData,
@@ -777,7 +777,18 @@ function evaluateAnswer(
 
 type Phase = 'config' | 'loading' | 'quiz' | 'review';
 
+// useSearchParams() triggers a client-side bail-out during static prerender
+// unless wrapped in a Suspense boundary. The default export below provides
+// that boundary so `next build` can emit a static shell for /drill.
 export default function DrillPage() {
+  return (
+    <Suspense fallback={<div className="fixed inset-0 flex items-center justify-center bg-zinc-950 text-slate-400 text-sm">Loading drill…</div>}>
+      <DrillPageInner />
+    </Suspense>
+  );
+}
+
+function DrillPageInner() {
   const [phase, setPhase] = useState<Phase>('config');
   const [index, setIndex] = useState<IndexData | null>(null);
   const { syncProgress } = useAuth();
