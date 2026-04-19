@@ -70,9 +70,17 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     try {
       const { syncProgressToCloud, loadProgressFromCloud } = await import('./firebase');
 
-      // Get local progress
-      const localRaw = localStorage.getItem('drillProgress');
-      const localData = localRaw ? JSON.parse(localRaw) : { sessions: [], byScenario: {}, byHand: {} };
+      // Get local progress (V2 schema — see src/lib/progress.ts)
+      const localRaw = localStorage.getItem('drillProgressV2');
+      const localData = localRaw
+        ? JSON.parse(localRaw)
+        : {
+            version: 2,
+            sessions: [],
+            byScenario: {},
+            scenarioBreakdowns: {},
+            attempts: [],
+          };
 
       // Upload local to cloud (merge)
       await syncProgressToCloud(user.uid, localData);
@@ -80,7 +88,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       // Download merged cloud data
       const cloudData = await loadProgressFromCloud(user.uid);
       if (cloudData) {
-        localStorage.setItem('drillProgress', JSON.stringify(cloudData));
+        localStorage.setItem('drillProgressV2', JSON.stringify(cloudData));
       }
       // Stamp the moment we finished syncing so staleness check works.
       localStorage.setItem('lastSyncedAt', String(Date.now()));

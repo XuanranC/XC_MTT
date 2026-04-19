@@ -157,4 +157,11 @@ export const ACTION_COLORS: Record<string, string> = {
   fold: '#6b7280',   // gray
 };
 
+export const ACTION_LABELS: Record<string, string> = {
+  raise: 'Raise',
+  call: 'Call',
+  fold: 'Fold',
+  allin: 'All-In',
+};
+
 export const RANKS = ['A', 'K', 'Q', 'J', 'T', '9', '8', '7', '6', '5', '4', '3', '2'];
