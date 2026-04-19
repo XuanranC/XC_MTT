@@ -1182,12 +1182,15 @@ export default function DrillPage() {
                 action set for the CURRENT display question. Since availableActions
                 only updates on advance, in review it still shows live actions.
                 For accuracy show the actions actually in the reviewed answer's chart. */}
-            <div className="flex flex-wrap gap-2">
+            <div className="flex gap-2">
               {(() => {
                 // Derive action set from the displayed chart so review mode is faithful.
                 const chartData = scenarioDataCache.current[question.scenario];
                 const chart = chartData?.charts.find((c) => c.id === question.chartId);
                 const actions = chart ? getAvailableActions(chart) : availableActions;
+                // Scale padding/typography with action count so 4 buttons fit
+                // one row on mobile without wrapping into the poker-table area.
+                const isWide = actions.length <= 3;
                 return actions.map((action) => {
                   // In review mode, highlight the user's past pick (correct = green ring, wrong = red ring).
                   const reviewPicked = isReviewing && reviewingAnswer?.selectedAction === action;
@@ -1202,7 +1205,9 @@ export default function DrillPage() {
                       key={action}
                       onClick={() => !disabled && submitAnswer(action)}
                       disabled={disabled}
-                      className={`flex-1 min-w-[calc(33%-8px)] py-5 px-3 rounded-xl text-xl font-extrabold tracking-wide transition-all duration-200 ${
+                      className={`flex-1 min-w-0 rounded-xl font-extrabold tracking-wide transition-all duration-200 ${
+                        isWide ? 'py-5 px-3 text-xl' : 'py-4 px-2 text-base'
+                      } ${
                         disabled ? 'cursor-not-allowed' : 'cursor-pointer active:scale-95'
                       } ${disabled && !isSelected ? 'opacity-40' : ''}`}
                       style={{
