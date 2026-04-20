@@ -450,20 +450,26 @@ function PokerTable({
 
   return (
     <div
-      className="@container relative mx-auto"
+      className="@container relative"
       style={{
-        aspectRatio: '0.65 / 1',
-        // Fit within BOTH parent width (capped at 440px) and parent height,
-        // preserving aspect ratio. height:100% drives sizing when the parent
-        // is height-constrained (short viewports, small windows); max-width
-        // cap kicks in when the parent is wide enough that the table would
-        // otherwise exceed its natural max. This replaces the old width-only
-        // sizing that overflowed and collided with the action row.
-        // @container enables `cqw` units on descendants so every label and
-        // chip scales with the table, not the viewport.
-        height: '100%',
-        maxWidth: 'min(440px, 100%)',
-        maxHeight: '100%',
+        // Poker-table oval aspect. 0.72 is slightly less elongated than the
+        // previous 0.65, matching the more balanced look of GTO-Wizard-style
+        // tables at their natural size. Narrower/taller values made the
+        // table look spindly once it was allowed to stretch to available
+        // height.
+        aspectRatio: '0.72 / 1',
+        // width is the binding constraint: min of parent width, parent
+        // height scaled by aspect ratio, and an absolute 440px cap. Height
+        // then derives from aspect-ratio. This requires the parent to be a
+        // `container-type: size` context (set by the wrapping div in the
+        // drill quiz-phase layout) so `cqh` resolves correctly. Result: on
+        // tall viewports the table sits at its natural 440×611 size with
+        // breathing room; on short viewports it shrinks uniformly without
+        // overlapping the action row.
+        width: 'min(100cqw, calc(100cqh * 0.72), 440px)',
+        // @container (declared above) is inline-size by default — it enables
+        // cqw units on descendants so every label and chip scales with the
+        // table, not the viewport.
       }}
     >
       {/* Table felt (tall oval, mobile-first) */}
@@ -1296,14 +1302,25 @@ function DrillPageInner() {
               bottom-center) so the visual connection between hero and hand
               stays tight, while still living in normal flow so they can't
               overlap the action-button row below. */}
-          <div className="flex-1 flex flex-col items-center justify-center min-h-0 py-2 gap-1">
-            <PokerTable
-              scenario={question.scenario}
-              heroPos={question.position}
-              vs={question.vs}
-              bb={question.bb}
-              hand={question.hand}
-            />
+          <div className="flex-1 flex flex-col items-center justify-center min-h-0 py-2 gap-2">
+            {/* Size-container around PokerTable. container-type: size lets
+                the table root use both cqw and cqh so its width is derived
+                from whichever of parent-width / parent-height / 440px
+                constraints binds first — giving the original width-driven
+                look on tall viewports AND shrinking gracefully on short ones
+                instead of stretching to fill all vertical space. */}
+            <div
+              className="flex-1 min-h-0 w-full flex items-center justify-center"
+              style={{ containerType: 'size' }}
+            >
+              <PokerTable
+                scenario={question.scenario}
+                heroPos={question.position}
+                vs={question.vs}
+                bb={question.bb}
+                hand={question.hand}
+              />
+            </div>
             <HandCards hand={question.hand} />
           </div>
 
