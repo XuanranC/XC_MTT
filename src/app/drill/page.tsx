@@ -450,7 +450,7 @@ function PokerTable({
 
   return (
     <div
-      className="relative mx-auto"
+      className="@container relative mx-auto"
       style={{
         aspectRatio: '0.65 / 1',
         // Fit within BOTH parent width (capped at 440px) and parent height,
@@ -459,6 +459,8 @@ function PokerTable({
         // cap kicks in when the parent is wide enough that the table would
         // otherwise exceed its natural max. This replaces the old width-only
         // sizing that overflowed and collided with the action row.
+        // @container enables `cqw` units on descendants so every label and
+        // chip scales with the table, not the viewport.
         height: '100%',
         maxWidth: 'min(440px, 100%)',
         maxHeight: '100%',
@@ -470,11 +472,12 @@ function PokerTable({
           border: '2px solid rgba(255,255,255,0.08)',
           boxShadow: 'inset 0 4px 20px rgba(0,0,0,0.5), 0 8px 30px rgba(0,0,0,0.4)' }} />
 
-      {/* Pot + stack-depth center */}
+      {/* Pot + stack-depth center. All font sizes in cqw so the pot block
+          scales with the table container instead of staying fixed-px. */}
       <div className="absolute left-1/2 top-[42%] -translate-x-1/2 -translate-y-1/2 text-center pointer-events-none">
-        <div className="text-xs text-white/50 font-semibold">{bb}bb stacks</div>
-        <div className="text-2xl font-extrabold text-white/95 leading-tight mt-0.5">{action.bbInPot.toFixed(1)} bb</div>
-        <div className="text-[11px] text-white/40 font-medium tracking-wide uppercase mt-0.5">Pot</div>
+        <div className="text-white/50 font-semibold" style={{ fontSize: 'clamp(10px, 2.8cqw, 13px)' }}>{bb}bb stacks</div>
+        <div className="font-extrabold text-white/95 leading-tight mt-0.5" style={{ fontSize: 'clamp(16px, 6cqw, 28px)' }}>{action.bbInPot.toFixed(1)} bb</div>
+        <div className="text-white/40 font-medium tracking-wide uppercase mt-0.5" style={{ fontSize: 'clamp(9px, 2.3cqw, 11px)' }}>Pot</div>
       </div>
 
       {/* Seats */}
@@ -505,10 +508,10 @@ function PokerTable({
                 border: '1px solid rgba(255,255,255,0.12)',
                 opacity: isFolded ? 0.35 : 1,
               }}>
-              <span className={`text-base sm:text-lg font-extrabold leading-none ${
+              <span className={`font-extrabold leading-none ${
                 isHero ? 'text-emerald-300' : isVillain ? 'text-amber-300' : isThird ? 'text-sky-300' : 'text-white/90'
-              }`}>{seat}</span>
-              <span className="text-xs sm:text-sm text-white/70 font-bold leading-none mt-1 whitespace-nowrap">
+              }`} style={{ fontSize: 'clamp(11px, 4.5cqw, 20px)' }}>{seat}</span>
+              <span className="text-white/70 font-bold leading-none mt-1 whitespace-nowrap" style={{ fontSize: 'clamp(9px, 3cqw, 14px)' }}>
                 {(() => {
                   // Show remaining behind = starting stack minus what this
                   // seat has already put into the pot (blinds, opens, raises,
@@ -527,9 +530,16 @@ function PokerTable({
               )}
             </div>
 
-            {/* Dealer button */}
+            {/* Dealer button — scales with the table via cqw. */}
             {isButton && (
-              <div className="absolute -bottom-1 left-1/2 -translate-x-1/2 w-5 h-5 rounded-full bg-white text-black text-[10px] font-black flex items-center justify-center shadow">
+              <div
+                className="absolute -bottom-1 left-1/2 -translate-x-1/2 rounded-full bg-white text-black font-black flex items-center justify-center shadow"
+                style={{
+                  width: 'clamp(14px, 5cqw, 22px)',
+                  height: 'clamp(14px, 5cqw, 22px)',
+                  fontSize: 'clamp(8px, 2.2cqw, 11px)',
+                }}
+              >
                 D
               </div>
             )}
@@ -537,8 +547,8 @@ function PokerTable({
             {/* Bet chips (villain/third) */}
             {isVillain && action.villainLabel && (
               <div className="absolute left-1/2 -translate-x-1/2 top-[100%] mt-1.5 whitespace-nowrap">
-                <div className="px-2 py-1 rounded-md text-[11px] font-extrabold tracking-wide"
-                  style={{ background: action.villainColor, color: '#fff', boxShadow: `0 2px 10px ${action.villainColor}70` }}>
+                <div className="px-2 py-1 rounded-md font-extrabold tracking-wide"
+                  style={{ fontSize: 'clamp(9px, 2.5cqw, 12px)', background: action.villainColor, color: '#fff', boxShadow: `0 2px 10px ${action.villainColor}70` }}>
                   {action.villainLabel}
                 </div>
               </div>
@@ -547,8 +557,8 @@ function PokerTable({
               const thirdColor = action.thirdColor ?? '#eab308';
               return (
                 <div className="absolute left-1/2 -translate-x-1/2 top-[100%] mt-1.5 whitespace-nowrap">
-                  <div className="px-2 py-1 rounded-md text-[11px] font-extrabold tracking-wide"
-                    style={{ background: thirdColor, color: '#fff', boxShadow: `0 2px 10px ${thirdColor}80` }}>
+                  <div className="px-2 py-1 rounded-md font-extrabold tracking-wide"
+                    style={{ fontSize: 'clamp(9px, 2.5cqw, 12px)', background: thirdColor, color: '#fff', boxShadow: `0 2px 10px ${thirdColor}80` }}>
                     {action.thirdLabel}
                   </div>
                 </div>
@@ -565,8 +575,8 @@ function PokerTable({
               const formatted = Number.isInteger(amt) ? `${amt}` : amt.toFixed(1);
               return (
                 <div className="absolute left-1/2 -translate-x-1/2 top-[100%] mt-1.5 whitespace-nowrap">
-                  <div className="px-2 py-1 rounded-md text-[11px] font-extrabold tracking-wide"
-                    style={{ background: '#22c55e', color: '#fff', boxShadow: '0 2px 10px rgba(34,197,94,0.5)' }}>
+                  <div className="px-2 py-1 rounded-md font-extrabold tracking-wide"
+                    style={{ fontSize: 'clamp(9px, 2.5cqw, 12px)', background: '#22c55e', color: '#fff', boxShadow: '0 2px 10px rgba(34,197,94,0.5)' }}>
                     {formatted} bb
                   </div>
                 </div>
