@@ -449,7 +449,21 @@ function PokerTable({
   const btnSeat: Seat = isHU ? 'SB' : 'BTN';
 
   return (
-    <div className="relative w-full mx-auto" style={{ maxWidth: 440, aspectRatio: '0.65 / 1' }}>
+    <div
+      className="relative mx-auto"
+      style={{
+        aspectRatio: '0.65 / 1',
+        // Fit within BOTH parent width (capped at 440px) and parent height,
+        // preserving aspect ratio. height:100% drives sizing when the parent
+        // is height-constrained (short viewports, small windows); max-width
+        // cap kicks in when the parent is wide enough that the table would
+        // otherwise exceed its natural max. This replaces the old width-only
+        // sizing that overflowed and collided with the action row.
+        height: '100%',
+        maxWidth: 'min(440px, 100%)',
+        maxHeight: '100%',
+      }}
+    >
       {/* Table felt (tall oval, mobile-first) */}
       <div className="absolute inset-x-[4%] inset-y-[2%] rounded-[50%]"
         style={{ background: 'radial-gradient(ellipse at 50% 40%, #1a3a2f 0%, #0f2420 70%, #081815 100%)',
@@ -472,10 +486,15 @@ function PokerTable({
         const isFolded = action.foldedSeats.has(seat) && !isHero;
         const isButton = seat === btnSeat;
         return (
-          <div key={seat} className="absolute -translate-x-1/2 -translate-y-1/2"
+          <div key={seat} className="absolute w-[16.4%] aspect-square -translate-x-1/2 -translate-y-1/2"
             style={{ left: `${leftPct}%`, top: `${topPct}%` }}>
-            {/* Seat circle */}
-            <div className={`relative w-[72px] h-[72px] sm:w-20 sm:h-20 rounded-full flex flex-col items-center justify-center text-center transition-all ${
+            {/* Seat circle — fills the wrapper so its size scales with the
+                table container (16.4% of table width, matching old 72px on a
+                440px table). Fixing this on the wrapper rather than the
+                circle itself is required because the circle's % would
+                otherwise resolve against an absolute-positioned parent with
+                no intrinsic width, collapsing to zero. */}
+            <div className={`relative w-full h-full rounded-full flex flex-col items-center justify-center text-center transition-all ${
               isHero ? 'ring-[3px] ring-emerald-400 shadow-[0_0_28px_rgba(16,185,129,0.55)]'
               : isVillain ? 'ring-[3px] ring-amber-400'
               : isThird ? 'ring-[3px] ring-sky-400'
@@ -489,7 +508,7 @@ function PokerTable({
               <span className={`text-base sm:text-lg font-extrabold leading-none ${
                 isHero ? 'text-emerald-300' : isVillain ? 'text-amber-300' : isThird ? 'text-sky-300' : 'text-white/90'
               }`}>{seat}</span>
-              <span className="text-xs sm:text-sm text-white/70 font-bold leading-none mt-1">
+              <span className="text-xs sm:text-sm text-white/70 font-bold leading-none mt-1 whitespace-nowrap">
                 {(() => {
                   // Show remaining behind = starting stack minus what this
                   // seat has already put into the pot (blinds, opens, raises,
