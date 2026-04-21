@@ -798,9 +798,15 @@ function evaluateAnswer(
   // Normalize every action's share by reach (so conditional nodes compare fairly).
   // Mixed = primary action doesn't fully occupy the reached probability.
   const isMixed = actions.length > 1 && primary.pct < reach - 0.5;
-  // Accept any action whose normalized share within reach is ≥ 5%.
+  // Accept any action whose normalized share within reach rounds to ≥ 5%.
+  // Using Math.round here — not a strict >= 0.05 — so acceptance matches
+  // exactly what the UI displays (HandPopup, RangeMatrixModal, and the
+  // review card all render `(a.pct / reach * 100).toFixed(0)%`). Without
+  // this, a combo with 4.6% raise frequency would show "Raise 5%" to the
+  // user but still be marked wrong if they picked Raise — a confusing
+  // mismatch between the promised options and the grader.
   const acceptable = isMixed
-    ? new Set(actions.filter((a) => a.pct / reach >= 0.05).map((a) => a.action))
+    ? new Set(actions.filter((a) => Math.round((a.pct / reach) * 100) >= 5).map((a) => a.action))
     : new Set([primary.action]);
   const actionCorrect = acceptable.has(selectedAction);
   return { question, selectedAction, selectedPct: 0, isCorrect: actionCorrect, actionCorrect, pctError: 0 };
