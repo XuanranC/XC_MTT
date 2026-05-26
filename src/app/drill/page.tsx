@@ -726,6 +726,11 @@ async function generateQuestions(
       if (filters.mode === 'edge' && chart.edges && Object.keys(chart.edges).length > 0) {
         edgeHands = new Set<string>();
         for (const [seriesName, info] of Object.entries(chart.edges)) {
+          // Skip series where the floor has no actual play (e.g. 9xo in
+          // CO RFI: every hand 100% fold). Testing the "floor" + ±1 there
+          // would just spam the user with 100%-fold trivia. compute_edges
+          // tags those series with action=null as a sentinel.
+          if (info.action == null) continue;
           const series = seriesDefinitions[seriesName];
           if (!series) continue;
           const idx = series.indexOf(info.floor);
@@ -886,7 +891,7 @@ function DrillPageInner() {
   const advanceTimeoutRef = useRef<number | null>(null);
 
   // Restore game type from localStorage on mount + load matching index.
-  // CRITICAL: also seed bbRange + mode to match the namespace, otherwise the
+  // CRITICAL: also seed bbRange to match the namespace, otherwise the
   // hidden-but-still-stateful BB Range filter (default [2,30]) excludes every
   // 100bb chart in the 6-Max namespace and generateQuestions returns 0 hands.
   useEffect(() => {
@@ -899,7 +904,6 @@ function DrillPageInner() {
     setGameTypeUI(initial);
     if (initial === '6max_100bb') {
       setBbRange([100, 100]);
-      setMode('random');
     }
     getIndex().then(setIndex);
   }, []);
@@ -914,10 +918,6 @@ function DrillPageInner() {
     setSelectedScenarios(['RFI']);
     setSelectedPositions([]);
     setBbRange(gt === '6max_100bb' ? [100, 100] : [2, 30]);
-    // 6-Max charts ship without pre-computed edges, so Edge Only mode would
-    // silently degrade to random there. Default to random for clarity until
-    // edge data is generated for the 6-Max namespace.
-    if (gt === '6max_100bb') setMode('random');
     setIndex(null);
     const idx = await getIndex();
     setIndex(idx);
