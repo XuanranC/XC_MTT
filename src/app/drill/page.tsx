@@ -21,7 +21,11 @@ import {
   getScenarioData,
   getHandActions,
   getAvailableActions,
+  setGameType,
+  getGameType,
+  DEFAULT_GAME_TYPE,
 } from '@/lib/data';
+import type { GameType } from '@/lib/data';
 import { recordDrillSession } from '@/lib/progress';
 import { RangeMatrixModal } from '@/components/RangeMatrixModal';
 import { useAuth } from '@/lib/auth-context';
@@ -834,6 +838,10 @@ function DrillPageInner() {
   const [index, setIndex] = useState<IndexData | null>(null);
   const { syncProgress } = useAuth();
 
+  // Game type (MTT vs 6-Max 100bb cash). Persisted in localStorage.
+  // Drives which /data/{namespace}/*.json files are loaded by data.ts.
+  const [gameTypeUI, setGameTypeUI] = useState<GameType>(DEFAULT_GAME_TYPE);
+
   // Config state
   const [selectedScenarios, setSelectedScenarios] = useState<string[]>(['RFI']);
   // If the user arrived via `/drill?scenario=X` (e.g. from progress detail),
@@ -872,10 +880,32 @@ function DrillPageInner() {
   const scenarioDataCache = useRef<Record<string, ScenarioData>>({});
   const advanceTimeoutRef = useRef<number | null>(null);
 
-  // Load index on mount
+  // Restore game type from localStorage on mount + load matching index.
   useEffect(() => {
+    let initial: GameType = DEFAULT_GAME_TYPE;
+    try {
+      const saved = localStorage.getItem('gto_drill_game_type');
+      if (saved === 'mtt' || saved === '6max_100bb') initial = saved;
+    } catch { /* SSR or storage disabled */ }
+    setGameType(initial);
+    setGameTypeUI(initial);
     getIndex().then(setIndex);
   }, []);
+
+  // Switch game type: persist + reset scenario/position selection + reload index.
+  const handleGameTypeChange = useCallback(async (gt: GameType) => {
+    if (gt === gameTypeUI) return;
+    setGameType(gt);
+    setGameTypeUI(gt);
+    try { localStorage.setItem('gto_drill_game_type', gt); } catch { /* noop */ }
+    // Reset config because scenarios/positions differ between namespaces.
+    setSelectedScenarios(['RFI']);
+    setSelectedPositions([]);
+    setBbRange(gt === '6max_100bb' ? [100, 100] : [2, 30]);
+    setIndex(null);
+    const idx = await getIndex();
+    setIndex(idx);
+  }, [gameTypeUI]);
 
   // Compute available positions from selected scenarios
   const availablePositions = (() => {
@@ -964,8 +994,10 @@ function DrillPageInner() {
     const nextIdx = currentIdx + 1;
     if (nextIdx >= questions.length) {
       try {
-        recordDrillSession(allAnswersWithCurrent, selectedScenarios.join(','));
-        localStorage.setItem('lastDrillAnswers', JSON.stringify(allAnswersWithCurrent));
+        // recordDrillSession writes both the per-session stats AND the
+        // lastDrillAnswers payload (v3 — includes gameType) so /review can
+        // tell which namespace the session belonged to.
+        recordDrillSession(allAnswersWithCurrent, selectedScenarios.join(','), gameTypeUI);
         syncProgress().catch(() => {});
       } catch (e) {
         console.error('Failed to record progress:', e);
@@ -1032,6 +1064,33 @@ function DrillPageInner() {
         <div className="max-w-2xl mx-auto px-4 py-8 space-y-8">
           <h1 className="text-3xl font-bold">GTO Preflop Drill</h1>
 
+          {/* Game type tab — MTT vs 6-Max 100bb */}
+          <section className="space-y-3">
+            <h2 className="text-lg font-semibold text-zinc-300">游戏类型</h2>
+            <div className="flex gap-2">
+              {([
+                { gt: 'mtt' as GameType, label: 'MTT', sub: '短栈训练 2-100bb' },
+                { gt: '6max_100bb' as GameType, label: '6-Max 100bb', sub: '线上常规桌' },
+              ]).map(({ gt, label, sub }) => {
+                const active = gameTypeUI === gt;
+                return (
+                  <button
+                    key={gt}
+                    onClick={() => handleGameTypeChange(gt)}
+                    className={`flex-1 px-4 py-3 rounded-lg text-sm font-medium transition-colors text-left ${
+                      active
+                        ? 'bg-purple-600 text-white shadow-lg'
+                        : 'bg-zinc-800 text-zinc-300 hover:bg-zinc-700'
+                    }`}
+                  >
+                    <div className="font-bold">{label}</div>
+                    <div className={`text-xs mt-0.5 ${active ? 'text-purple-100' : 'text-zinc-500'}`}>{sub}</div>
+                  </button>
+                );
+              })}
+            </div>
+          </section>
+
           {/* Scenario selection */}
           <section className="space-y-3">
             <h2 className="text-lg font-semibold text-zinc-300">Scenarios</h2>
@@ -1091,7 +1150,8 @@ function DrillPageInner() {
             </section>
           )}
 
-          {/* BB Range */}
+          {/* BB Range — hidden in 6-Max 100bb mode (only one depth) */}
+          {gameTypeUI !== '6max_100bb' && (
           <section className="space-y-3">
             <h2 className="text-lg font-semibold text-zinc-300">
               BB Range: {bbRange[0]} - {bbRange[1]}
@@ -1126,6 +1186,7 @@ function DrillPageInner() {
               </label>
             </div>
           </section>
+          )}
 
           {/* Questions per round */}
           <section className="space-y-3">

@@ -10,6 +10,8 @@ import {
   getHandActions,
   getPrimaryAction,
   getRangePercent,
+  setGameType,
+  DEFAULT_GAME_TYPE,
 } from '@/lib/data';
 import {
   ScenarioData,
@@ -1411,6 +1413,18 @@ export default function StudyScenarioPage({
     let cancelled = false;
     async function load() {
       try {
+        // Restore game_type from localStorage before loading data, otherwise
+        // direct-link visits to /study/RFI would always hit the MTT namespace
+        // even when the user last picked 6-max on the home page.
+        try {
+          const saved = localStorage.getItem('gto_drill_game_type');
+          if (saved === 'mtt' || saved === '6max_100bb') {
+            setGameType(saved);
+          } else {
+            setGameType(DEFAULT_GAME_TYPE);
+          }
+        } catch { setGameType(DEFAULT_GAME_TYPE); }
+
         const [sd, idx] = await Promise.all([getScenarioData(scenario), getIndex()]);
         if (cancelled) return;
         setScenarioData(sd);

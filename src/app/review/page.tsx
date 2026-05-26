@@ -3,6 +3,9 @@
 import { useEffect, useState, useMemo } from 'react';
 import Link from 'next/link';
 import { DrillAnswer, SCENARIO_LABELS, ACTION_COLORS, RANKS } from '@/lib/types';
+import { getLastAnswers } from '@/lib/progress';
+import { DEFAULT_GAME_TYPE } from '@/lib/data';
+import type { GameType } from '@/lib/data';
 
 interface SeriesGroup {
   series: string;
@@ -95,16 +98,14 @@ function ComparisonTable({
 
 export default function ReviewPage() {
   const [answers, setAnswers] = useState<DrillAnswer[]>([]);
+  const [gameType, setLocalGameType] = useState<GameType>(DEFAULT_GAME_TYPE);
   const [loaded, setLoaded] = useState(false);
 
   useEffect(() => {
-    const stored = localStorage.getItem('lastDrillAnswers');
-    if (stored) {
-      try {
-        setAnswers(JSON.parse(stored));
-      } catch {
-        // ignore
-      }
+    const payload = getLastAnswers();
+    if (payload) {
+      setAnswers(payload.answers);
+      setLocalGameType(payload.gameType);
     }
     setLoaded(true);
   }, []);
@@ -178,6 +179,16 @@ export default function ReviewPage() {
 
   return (
     <div className="max-w-3xl mx-auto px-4 py-6 pb-24 md:pb-6">
+      {/* Game type banner — tells the user which namespace this session ran in */}
+      <div className="flex items-center gap-2 mb-3 px-1 text-xs text-slate-400">
+        <span className="text-[10px] uppercase tracking-wider">游戏类型</span>
+        <span className={`px-2 py-0.5 rounded font-semibold ${
+          gameType === '6max_100bb' ? 'bg-purple-600/30 text-purple-200' : 'bg-blue-600/30 text-blue-200'
+        }`}>
+          {gameType === '6max_100bb' ? '6-Max 100bb' : 'MTT'}
+        </span>
+      </div>
+
       {/* Score Card */}
       <div className="bg-slate-800 rounded-xl p-6 mb-6 text-center">
         <h1 className="text-lg text-slate-400 mb-2">Drill Results</h1>

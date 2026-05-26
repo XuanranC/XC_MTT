@@ -1,20 +1,49 @@
 import { IndexData, ScenarioData, Chart, HandData } from './types';
 
-let indexCache: IndexData | null = null;
-const scenarioCache: Record<string, ScenarioData> = {};
+// Game type namespacing.
+//   'mtt'        → /data/{name}.json           (legacy root)
+//   '6max_100bb' → /data/6max_100bb/{name}.json
+//
+// Cached per game type so switching modes doesn't re-fetch already-loaded data.
+// `currentGameType` is module-level mutable state because every drill-page
+// helper threads scenario names but not the game type — pulling it from one
+// place keeps the change surface small.
+export type GameType = 'mtt' | '6max_100bb';
+export const GAME_TYPES: readonly GameType[] = ['mtt', '6max_100bb'];
+export const DEFAULT_GAME_TYPE: GameType = 'mtt';
+
+let currentGameType: GameType = DEFAULT_GAME_TYPE;
+const indexCache: Map<GameType, IndexData> = new Map();
+const scenarioCache: Map<string, ScenarioData> = new Map(); // key = `${gt}::${name}`
+
+export function setGameType(gt: GameType): void {
+  currentGameType = gt;
+}
+
+export function getGameType(): GameType {
+  return currentGameType;
+}
+
+function pathFor(name: string): string {
+  return currentGameType === 'mtt' ? `/data/${name}` : `/data/${currentGameType}/${name}`;
+}
 
 export async function getIndex(): Promise<IndexData> {
-  if (indexCache) return indexCache;
-  const res = await fetch('/data/index.json');
-  indexCache = await res.json();
-  return indexCache!;
+  const cached = indexCache.get(currentGameType);
+  if (cached) return cached;
+  const res = await fetch(pathFor('index.json'));
+  const data: IndexData = await res.json();
+  indexCache.set(currentGameType, data);
+  return data;
 }
 
 export async function getScenarioData(scenario: string): Promise<ScenarioData> {
-  if (scenarioCache[scenario]) return scenarioCache[scenario];
-  const res = await fetch(`/data/${scenario}.json`);
+  const key = `${currentGameType}::${scenario}`;
+  const cached = scenarioCache.get(key);
+  if (cached) return cached;
+  const res = await fetch(pathFor(`${scenario}.json`));
   const data: ScenarioData = await res.json();
-  scenarioCache[scenario] = data;
+  scenarioCache.set(key, data);
   return data;
 }
 

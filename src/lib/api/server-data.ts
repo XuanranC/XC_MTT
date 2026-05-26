@@ -5,50 +5,78 @@
  * in the browser. API routes (Node runtime) instead read directly from the
  * project's `public/data/` directory.
  *
+ * Game type namespacing:
+ *   gameType='mtt'         → public/data/{name}.json           (root, legacy)
+ *   gameType='6max_100bb'  → public/data/6max_100bb/{name}.json (subdir)
+ *
  * Cache lifetime = process lifetime. Vercel cold-starts hit `fs.readFile` +
- * `JSON.parse` once per scenario per instance; subsequent reads are free.
+ * `JSON.parse` once per (gameType, scenario) per instance; subsequent reads
+ * are free.
  */
 
 import { promises as fs } from 'fs';
 import path from 'path';
 import type { IndexData, ScenarioData, Chart } from '../types';
 
-const DATA_DIR = path.join(process.cwd(), 'public', 'data');
+export type GameType = 'mtt' | '6max_100bb';
+export const GAME_TYPES: readonly GameType[] = ['mtt', '6max_100bb'];
+export const DEFAULT_GAME_TYPE: GameType = 'mtt';
 
-let indexCache: IndexData | null = null;
-let indexPromise: Promise<IndexData> | null = null;
+export function isGameType(s: string): s is GameType {
+  return (GAME_TYPES as readonly string[]).includes(s);
+}
+
+const DATA_ROOT = path.join(process.cwd(), 'public', 'data');
+
+function dataDirFor(gameType: GameType): string {
+  return gameType === 'mtt' ? DATA_ROOT : path.join(DATA_ROOT, gameType);
+}
+
+function cacheKey(gameType: GameType, name: string): string {
+  return `${gameType}::${name}`;
+}
+
+const indexCache: Map<GameType, IndexData> = new Map();
+const indexPromises: Map<GameType, Promise<IndexData>> = new Map();
 const scenarioCache: Map<string, ScenarioData> = new Map();
 const scenarioPromises: Map<string, Promise<ScenarioData | null>> = new Map();
 
-/** Atomically load and cache the global index.json. */
-export async function loadIndex(): Promise<IndexData> {
-  if (indexCache) return indexCache;
-  if (indexPromise) return indexPromise;
-  indexPromise = (async () => {
-    const raw = await fs.readFile(path.join(DATA_DIR, 'index.json'), 'utf-8');
+/** Atomically load and cache the global index.json for a game type. */
+export async function loadIndex(gameType: GameType = DEFAULT_GAME_TYPE): Promise<IndexData> {
+  const cached = indexCache.get(gameType);
+  if (cached) return cached;
+  const existing = indexPromises.get(gameType);
+  if (existing) return existing;
+  const promise = (async () => {
+    const raw = await fs.readFile(path.join(dataDirFor(gameType), 'index.json'), 'utf-8');
     const parsed = JSON.parse(raw) as IndexData;
-    indexCache = parsed;
+    indexCache.set(gameType, parsed);
     return parsed;
   })();
+  indexPromises.set(gameType, promise);
   try {
-    return await indexPromise;
+    return await promise;
   } finally {
-    indexPromise = null;
+    indexPromises.delete(gameType);
   }
 }
 
 /** Atomically load and cache one scenario file by its internal name. */
-export async function loadScenario(name: string): Promise<ScenarioData | null> {
-  if (scenarioCache.has(name)) return scenarioCache.get(name)!;
-  const existing = scenarioPromises.get(name);
+export async function loadScenario(
+  name: string,
+  gameType: GameType = DEFAULT_GAME_TYPE
+): Promise<ScenarioData | null> {
+  const key = cacheKey(gameType, name);
+  if (scenarioCache.has(key)) return scenarioCache.get(key)!;
+  const existing = scenarioPromises.get(key);
   if (existing) return existing;
 
-  const filePath = path.join(DATA_DIR, `${name}.json`);
+  const filePath = path.join(dataDirFor(gameType), `${name}.json`);
   const promise = (async () => {
     try {
       const raw = await fs.readFile(filePath, 'utf-8');
       const parsed = JSON.parse(raw) as ScenarioData;
-      scenarioCache.set(name, parsed);
+      scenarioCache.set(key, parsed);
       return parsed;
     } catch (e) {
       const code = (e as NodeJS.ErrnoException).code;
@@ -56,11 +84,11 @@ export async function loadScenario(name: string): Promise<ScenarioData | null> {
       throw e;
     }
   })();
-  scenarioPromises.set(name, promise);
+  scenarioPromises.set(key, promise);
   try {
     return await promise;
   } finally {
-    scenarioPromises.delete(name);
+    scenarioPromises.delete(key);
   }
 }
 

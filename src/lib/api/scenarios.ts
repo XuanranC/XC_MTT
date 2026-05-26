@@ -1,17 +1,29 @@
 /**
  * Public scenario routing.
  *
- * The API exposes 11 logical scenarios; internally there are 12 JSON files
+ * The API exposes logical scenarios; internally there are separate JSON files
  * because VS_OPEN is split into VS_OPEN_BB (BB defense — chart.position is
  * the OPENER's position) and VS_OPEN_nonBB (non-BB defense — chart.position
  * is HERO, chart.vs is the opener).
  *
  * Callers always speak the logical name. This module hides the routing logic
  * and exposes a unified merged metadata view for /api/v1/scenarios.
+ *
+ * Game type namespacing: every routing call takes a `gameType` parameter
+ * (default 'mtt') which controls which data directory we read from. Logical
+ * scenario names are shared but each game type only exposes those it has
+ * data for (driven by index.json).
  */
 
 import type { IndexData, ScenarioData, ScenarioMeta, Chart } from '../types';
-import { loadIndex, loadScenario, findChart as findChartRaw, chartsBbsFor as chartsBbsForRaw } from './server-data';
+import {
+  loadIndex,
+  loadScenario,
+  findChart as findChartRaw,
+  chartsBbsFor as chartsBbsForRaw,
+  DEFAULT_GAME_TYPE,
+} from './server-data';
+import type { GameType } from './server-data';
 
 /** Logical API scenario names (what K仔 sends in `scenario=`). */
 export const API_SCENARIO_NAMES = [
@@ -68,6 +80,8 @@ export interface RouteContext {
   chartVs: string | null;
   // Whether vs_position was required for this lookup
   requiresVs: boolean;
+  // Game type for downstream loadScenario calls
+  gameType: GameType;
 }
 
 /**
@@ -83,13 +97,14 @@ export interface RouteContext {
 export async function routeRequest(
   apiScenario: ApiScenarioName,
   position: string,
-  vs: string | null
+  vs: string | null,
+  gameType: GameType = DEFAULT_GAME_TYPE
 ): Promise<{ ok: true; route: RouteContext } | { ok: false; reason: 'INVALID_VS_POSITION'; available: string[] }> {
   if (apiScenario === 'VS_OPEN') {
     const isBBDefense = position === 'BB' || position.startsWith('BB_');
     if (isBBDefense) {
-      const scen = await loadScenario('VS_OPEN_BB');
-      const available = scen?.positions ?? []; // BB_BB file lists opener positions as chart.position
+      const scen = await loadScenario('VS_OPEN_BB', gameType);
+      const available = scen?.positions ?? []; // BB defense file lists opener positions as chart.position
       if (!vs) {
         return { ok: false, reason: 'INVALID_VS_POSITION', available };
       }
@@ -103,10 +118,11 @@ export async function routeRequest(
           chartPosition: vs, // opener encoded as chart.position
           chartVs: null,
           requiresVs: true,
+          gameType,
         },
       };
     }
-    const scen = await loadScenario('VS_OPEN_nonBB');
+    const scen = await loadScenario('VS_OPEN_nonBB', gameType);
     const available = scen?.vs_positions ?? [];
     if (!vs) {
       return { ok: false, reason: 'INVALID_VS_POSITION', available };
@@ -121,13 +137,14 @@ export async function routeRequest(
         chartPosition: position,
         chartVs: vs,
         requiresVs: true,
+        gameType,
       },
     };
   }
 
   // All other scenarios map 1:1 to a file with matching name.
   const internalName = apiScenario;
-  const scen = await loadScenario(internalName);
+  const scen = await loadScenario(internalName, gameType);
   const fileVsPositions = scen?.vs_positions ?? null;
 
   if (fileVsPositions === null || fileVsPositions.length === 0) {
@@ -139,6 +156,7 @@ export async function routeRequest(
         chartPosition: position,
         chartVs: null,
         requiresVs: false,
+        gameType,
       },
     };
   }
@@ -157,6 +175,7 @@ export async function routeRequest(
       chartPosition: position,
       chartVs: vs,
       requiresVs: true,
+      gameType,
     },
   };
 }
@@ -165,13 +184,13 @@ export async function findChartViaRoute(
   route: RouteContext,
   bb: number
 ): Promise<Chart | null> {
-  const data = await loadScenario(route.internalName);
+  const data = await loadScenario(route.internalName, route.gameType);
   if (!data) return null;
   return findChartRaw(data, route.chartPosition, bb, route.chartVs);
 }
 
 export async function chartBbsForRoute(route: RouteContext): Promise<number[]> {
-  const data = await loadScenario(route.internalName);
+  const data = await loadScenario(route.internalName, route.gameType);
   if (!data) return [];
   return chartsBbsForRaw(data, route.chartPosition, route.chartVs);
 }
@@ -179,8 +198,11 @@ export async function chartBbsForRoute(route: RouteContext): Promise<number[]> {
 /**
  * Build the merged scenario list for /api/v1/scenarios.
  * VS_OPEN_BB + VS_OPEN_nonBB are merged into a single VS_OPEN entry.
+ * Only includes scenarios actually present in the given game type's index.
  */
-export async function listApiScenarios(): Promise<
+export async function listApiScenarios(
+  gameType: GameType = DEFAULT_GAME_TYPE
+): Promise<
   Array<{
     name: ApiScenarioName;
     description: string;
@@ -191,7 +213,7 @@ export async function listApiScenarios(): Promise<
     note?: string;
   }>
 > {
-  const idx = await loadIndex();
+  const idx = await loadIndex(gameType);
   const byName = new Map<string, ScenarioMeta>();
   for (const s of idx.scenarios) byName.set(s.name, s);
 
@@ -204,8 +226,7 @@ export async function listApiScenarios(): Promise<
       const allPositions = new Set<string>();
       for (const p of bb?.positions ?? []) allPositions.add(p);
       for (const p of nonBb?.positions ?? []) allPositions.add(p);
-      // BB defense always has hero = BB, but the position param is what users
-      // pass — add explicit BB/BB_* and the openers as accepted positions.
+      // BB defense always has hero = BB; explicitly allow that input value.
       allPositions.add('BB');
       const vsPositions = new Set<string>();
       // Openers for BB defense are chart.position values in VS_OPEN_BB.
@@ -243,9 +264,15 @@ export async function listApiScenarios(): Promise<
   return result;
 }
 
-/** For /api/v1/health — count distinct scenario JSON files. */
-export function totalScenarioFiles(): number {
-  return 12; // BVB, CALL_ALLIN, CALL_REJAM, HU_OFFLINE_ANTE, HU_ONLINE, RFI,
-             // VS_3BET, VS_OPEN_3BET, VS_OPEN_ALLIN, VS_OPEN_BB, VS_OPEN_CALL,
-             // VS_OPEN_nonBB
+/** For /api/v1/health — count files we'd expect on disk for a game type. */
+export function totalScenarioFiles(gameType: GameType = DEFAULT_GAME_TYPE): number {
+  if (gameType === 'mtt') {
+    return 12; // BVB, CALL_ALLIN, CALL_REJAM, HU_OFFLINE_ANTE, HU_ONLINE, RFI,
+               // VS_3BET, VS_OPEN_3BET, VS_OPEN_ALLIN, VS_OPEN_BB, VS_OPEN_CALL,
+               // VS_OPEN_nonBB
+  }
+  if (gameType === '6max_100bb') {
+    return 7; // RFI, BVB, VS_OPEN_BB, VS_OPEN_nonBB, VS_3BET, VS_OPEN_3BET, VS_OPEN_CALL
+  }
+  return 0;
 }

@@ -1,13 +1,18 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import { SCENARIO_LABELS, SCENARIO_ORDER } from '@/lib/types';
 import {
   getProgress,
   countWeakHands,
+  makeStatKey,
   type ProgressData,
 } from '@/lib/progress';
+import { DEFAULT_GAME_TYPE } from '@/lib/data';
+import type { GameType } from '@/lib/data';
+
+const GAME_TYPE_STORAGE_KEY = 'gto_drill_game_type';
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -81,18 +86,19 @@ function ProgressRing({
 }
 
 // ---------------------------------------------------------------------------
-// Scenario mastery card
+// Scenario mastery card — links to /progress/{scenario}?game_type=...
 // ---------------------------------------------------------------------------
 
 interface ScenarioCardProps {
   scenario: string;
+  gameType: GameType;
   total: number;
   correct: number;
   lastPracticed: number | null;
   weakSpotCount: number;
 }
 
-function ScenarioCard({ scenario, total, correct, lastPracticed, weakSpotCount }: ScenarioCardProps) {
+function ScenarioCard({ scenario, gameType, total, correct, lastPracticed, weakSpotCount }: ScenarioCardProps) {
   const hasData = total > 0;
   const pct = hasData ? Math.round((correct / total) * 100) : 0;
   const errorRate = hasData ? (total - correct) / total : 0;
@@ -101,7 +107,7 @@ function ScenarioCard({ scenario, total, correct, lastPracticed, weakSpotCount }
 
   return (
     <Link
-      href={`/progress/${encodeURIComponent(scenario)}`}
+      href={`/progress/${encodeURIComponent(scenario)}?game_type=${gameType}`}
       className={`
         relative block rounded-xl overflow-hidden
         bg-slate-800/80 border border-slate-700/60
@@ -158,33 +164,47 @@ function ScenarioCard({ scenario, total, correct, lastPracticed, weakSpotCount }
 
 export default function ProgressPage() {
   const [progress, setProgress] = useState<ProgressData | null>(null);
+  const [gameType, setGameType] = useState<GameType>(DEFAULT_GAME_TYPE);
 
   useEffect(() => {
+    let initial: GameType = DEFAULT_GAME_TYPE;
+    try {
+      const saved = localStorage.getItem(GAME_TYPE_STORAGE_KEY);
+      if (saved === 'mtt' || saved === '6max_100bb') initial = saved;
+    } catch { /* SSR or disabled */ }
+    setGameType(initial);
     setProgress(getProgress());
   }, []);
 
+  const handleGameTypeChange = useCallback((gt: GameType) => {
+    if (gt === gameType) return;
+    setGameType(gt);
+    try { localStorage.setItem(GAME_TYPE_STORAGE_KEY, gt); } catch { /* noop */ }
+  }, [gameType]);
+
+  // Scenario cards: filtered by current gameType.
   const scenarioCards = useMemo(() => {
     if (!progress) return [];
     const cards: Array<ScenarioCardProps & {
       errorRate: number;
       practiced: boolean;
     }> = SCENARIO_ORDER.map((scenario) => {
-      const stat = progress.byScenario[scenario];
+      const key = makeStatKey(gameType, scenario);
+      const stat = progress.byScenario[key];
       const total = stat?.total ?? 0;
       const correct = stat?.correct ?? 0;
       return {
         scenario,
+        gameType,
         total,
         correct,
         lastPracticed: stat?.lastPracticed ?? null,
-        weakSpotCount: total > 0 ? countWeakHands(scenario) : 0,
+        weakSpotCount: total > 0 ? countWeakHands(scenario, gameType) : 0,
         errorRate: total > 0 ? (total - correct) / total : 0,
         practiced: total > 0,
       };
     });
 
-    // Sort: practiced scenarios first (by error rate desc — weakest on top),
-    // then unpracticed scenarios (in declaration order).
     cards.sort((a, b) => {
       if (a.practiced && !b.practiced) return -1;
       if (!a.practiced && b.practiced) return 1;
@@ -192,7 +212,7 @@ export default function ProgressPage() {
       return b.errorRate - a.errorRate || b.total - a.total;
     });
     return cards;
-  }, [progress]);
+  }, [progress, gameType]);
 
   if (!progress) {
     return (
@@ -202,21 +222,51 @@ export default function ProgressPage() {
     );
   }
 
-  const totalSessions = progress.sessions.length;
-  const totalQuestions = progress.sessions.reduce((s, r) => s + r.total, 0);
-  const totalCorrect = progress.sessions.reduce((s, r) => s + r.correct, 0);
+  // Filter sessions by current gameType.
+  const filteredSessions = progress.sessions.filter((s) => s.gameType === gameType);
+  const totalSessions = filteredSessions.length;
+  const totalQuestions = filteredSessions.reduce((s, r) => s + r.total, 0);
+  const totalCorrect = filteredSessions.reduce((s, r) => s + r.correct, 0);
   const overallPct = totalQuestions > 0 ? Math.round((totalCorrect / totalQuestions) * 100) : 0;
 
-  const recentSessions = [...progress.sessions]
+  const recentSessions = [...filteredSessions]
     .sort((a, b) => b.timestamp - a.timestamp)
     .slice(0, 10);
 
-  if (totalSessions === 0) {
-    return (
-      <div className="max-w-2xl mx-auto px-4 py-8">
+  return (
+    <div className="max-w-3xl mx-auto px-4 py-6 pb-24 md:pb-6">
+      <h1 className="text-2xl font-bold text-slate-100 mb-4">Progress Dashboard</h1>
+
+      {/* Game type tab — MTT vs 6-Max stats are tracked independently */}
+      <div className="flex gap-2 mb-6">
+        {([
+          { gt: 'mtt' as GameType, label: 'MTT', sub: '短栈训练' },
+          { gt: '6max_100bb' as GameType, label: '6-Max 100bb', sub: '常规桌' },
+        ]).map(({ gt, label, sub }) => {
+          const active = gameType === gt;
+          return (
+            <button
+              key={gt}
+              onClick={() => handleGameTypeChange(gt)}
+              className={`flex-1 px-4 py-3 rounded-lg text-sm font-medium transition-colors text-left ${
+                active
+                  ? 'bg-purple-600 text-white shadow-lg'
+                  : 'bg-slate-800 text-slate-300 hover:bg-slate-700'
+              }`}
+            >
+              <div className="font-bold">{label}</div>
+              <div className={`text-xs mt-0.5 ${active ? 'text-purple-100' : 'text-slate-500'}`}>{sub}</div>
+            </button>
+          );
+        })}
+      </div>
+
+      {totalSessions === 0 ? (
         <div className="text-center py-16">
           <div className="text-6xl mb-4">📊</div>
-          <h2 className="text-xl font-bold text-slate-200 mb-2">No Progress Yet</h2>
+          <h2 className="text-xl font-bold text-slate-200 mb-2">
+            No {gameType === 'mtt' ? 'MTT' : '6-Max 100bb'} progress yet
+          </h2>
           <p className="text-slate-400 mb-6">Start drilling to track your progress here.</p>
           <Link
             href="/drill"
@@ -225,81 +275,77 @@ export default function ProgressPage() {
             Start Drilling
           </Link>
         </div>
-      </div>
-    );
-  }
+      ) : (
+        <>
+          {/* Hero stats */}
+          <div className="grid grid-cols-3 gap-3 mb-6">
+            <div className="bg-slate-800 rounded-xl p-4 text-center">
+              <div className="text-3xl font-bold text-slate-100 tabular-nums">{totalSessions}</div>
+              <div className="text-[11px] uppercase tracking-wider text-slate-500 mt-1">Sessions</div>
+            </div>
+            <div className="bg-slate-800 rounded-xl p-4 text-center">
+              <div className="text-3xl font-bold text-slate-100 tabular-nums">{totalQuestions}</div>
+              <div className="text-[11px] uppercase tracking-wider text-slate-500 mt-1">Questions</div>
+            </div>
+            <div className="bg-slate-800 rounded-xl p-4 text-center">
+              <div className={`text-3xl font-bold tabular-nums ${
+                overallPct >= 80 ? 'text-emerald-400' : overallPct >= 60 ? 'text-amber-400' : 'text-rose-400'
+              }`}>{overallPct}%</div>
+              <div className="text-[11px] uppercase tracking-wider text-slate-500 mt-1">Accuracy</div>
+            </div>
+          </div>
 
-  return (
-    <div className="max-w-3xl mx-auto px-4 py-6 pb-24 md:pb-6">
-      <h1 className="text-2xl font-bold text-slate-100 mb-6">Progress Dashboard</h1>
+          {/* Scenario Mastery */}
+          <div className="mb-6">
+            <div className="flex items-center justify-between mb-3 px-1">
+              <h2 className="font-bold text-slate-200">Scenario Mastery</h2>
+              <span className="text-[11px] text-slate-500 uppercase tracking-wider">Tap to drill down</span>
+            </div>
+            <div className="space-y-2">
+              {scenarioCards.map((c) => (
+                <ScenarioCard key={c.scenario} {...c} />
+              ))}
+            </div>
+          </div>
 
-      {/* Hero stats */}
-      <div className="grid grid-cols-3 gap-3 mb-6">
-        <div className="bg-slate-800 rounded-xl p-4 text-center">
-          <div className="text-3xl font-bold text-slate-100 tabular-nums">{totalSessions}</div>
-          <div className="text-[11px] uppercase tracking-wider text-slate-500 mt-1">Sessions</div>
-        </div>
-        <div className="bg-slate-800 rounded-xl p-4 text-center">
-          <div className="text-3xl font-bold text-slate-100 tabular-nums">{totalQuestions}</div>
-          <div className="text-[11px] uppercase tracking-wider text-slate-500 mt-1">Questions</div>
-        </div>
-        <div className="bg-slate-800 rounded-xl p-4 text-center">
-          <div className={`text-3xl font-bold tabular-nums ${
-            overallPct >= 80 ? 'text-emerald-400' : overallPct >= 60 ? 'text-amber-400' : 'text-rose-400'
-          }`}>{overallPct}%</div>
-          <div className="text-[11px] uppercase tracking-wider text-slate-500 mt-1">Accuracy</div>
-        </div>
-      </div>
-
-      {/* Scenario Mastery */}
-      <div className="mb-6">
-        <div className="flex items-center justify-between mb-3 px-1">
-          <h2 className="font-bold text-slate-200">Scenario Mastery</h2>
-          <span className="text-[11px] text-slate-500 uppercase tracking-wider">Tap to drill down</span>
-        </div>
-        <div className="space-y-2">
-          {scenarioCards.map((c) => (
-            <ScenarioCard key={c.scenario} {...c} />
-          ))}
-        </div>
-      </div>
-
-      {/* Recent Sessions */}
-      <div className="bg-slate-800 rounded-xl p-4 mb-6">
-        <h2 className="font-bold text-slate-200 mb-4">Recent Sessions</h2>
-        <div className="space-y-2">
-          {recentSessions.map((s) => {
-            const pct = s.total > 0 ? Math.round((s.correct / s.total) * 100) : 0;
-            const date = new Date(s.timestamp);
-            return (
-              <div key={s.id} className="flex items-center justify-between py-2 border-b border-slate-700 last:border-0">
-                <div className="min-w-0">
-                  <div className="text-sm text-slate-300 truncate">
-                    {(s.scenario.split(',').map((x) => SCENARIO_LABELS[x] || x)).join(', ')}
+          {/* Recent Sessions */}
+          <div className="bg-slate-800 rounded-xl p-4 mb-6">
+            <h2 className="font-bold text-slate-200 mb-4">Recent Sessions</h2>
+            <div className="space-y-2">
+              {recentSessions.map((s) => {
+                const pct = s.total > 0 ? Math.round((s.correct / s.total) * 100) : 0;
+                const date = new Date(s.timestamp);
+                return (
+                  <div key={s.id} className="flex items-center justify-between py-2 border-b border-slate-700 last:border-0">
+                    <div className="min-w-0">
+                      <div className="text-sm text-slate-300 truncate">
+                        {(s.scenario.split(',').map((x) => SCENARIO_LABELS[x] || x)).join(', ')}
+                      </div>
+                      <div className="text-xs text-slate-500 tabular-nums">
+                        {date.toLocaleDateString()} {date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                      </div>
+                    </div>
+                    <div className="text-right tabular-nums">
+                      <div className={`font-bold ${pct >= 80 ? 'text-emerald-400' : pct >= 60 ? 'text-amber-400' : 'text-rose-400'}`}>
+                        {pct}%
+                      </div>
+                      <div className="text-xs text-slate-400">
+                        {s.correct}/{s.total}
+                      </div>
+                    </div>
                   </div>
-                  <div className="text-xs text-slate-500 tabular-nums">
-                    {date.toLocaleDateString()} {date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                  </div>
-                </div>
-                <div className="text-right tabular-nums">
-                  <div className={`font-bold ${pct >= 80 ? 'text-emerald-400' : pct >= 60 ? 'text-amber-400' : 'text-rose-400'}`}>
-                    {pct}%
-                  </div>
-                  <div className="text-xs text-slate-400">
-                    {s.correct}/{s.total}
-                  </div>
-                </div>
-              </div>
-            );
-          })}
-        </div>
-      </div>
+                );
+              })}
+            </div>
+          </div>
+        </>
+      )}
 
-      {/* Data sync */}
+      {/* Data sync — shared across game types since it's the full ProgressData */}
       <div className="bg-slate-800 rounded-xl p-4">
         <h2 className="font-bold text-slate-200 mb-3">Data Sync</h2>
         <p className="text-sm text-slate-400 mb-3">
-          Export your progress to sync across devices, or import from a backup.
+          Export your progress (both MTT and 6-Max) to sync across devices, or import from a backup.
         </p>
         <div className="flex gap-3">
           <button

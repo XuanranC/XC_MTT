@@ -9,6 +9,8 @@
 import { successResponse, errors } from '@/lib/api/respond';
 import { requireAuth } from '@/lib/api/auth';
 import { listApiScenarios } from '@/lib/api/scenarios';
+import { DEFAULT_GAME_TYPE, GAME_TYPES, isGameType } from '@/lib/api/server-data';
+import type { GameType } from '@/lib/api/server-data';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -19,8 +21,15 @@ export async function GET(request: Request) {
   if (authFail) return authFail;
 
   try {
-    const scenarios = await listApiScenarios();
-    return successResponse({ scenarios }, { startTime });
+    const url = new URL(request.url);
+    const gameTypeRaw = url.searchParams.get('game_type') ?? DEFAULT_GAME_TYPE;
+    if (!isGameType(gameTypeRaw)) {
+      return errors.missingParam(`game_type (must be one of: ${GAME_TYPES.join(', ')})`, startTime);
+    }
+    const gameType: GameType = gameTypeRaw;
+
+    const scenarios = await listApiScenarios(gameType);
+    return successResponse({ game_type: gameType, scenarios }, { startTime });
   } catch (e) {
     return errors.internal(e, startTime);
   }

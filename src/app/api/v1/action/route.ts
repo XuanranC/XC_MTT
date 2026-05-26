@@ -15,7 +15,8 @@ import {
   chartBbsForRoute,
   findChartViaRoute,
 } from '@/lib/api/scenarios';
-import { loadIndex } from '@/lib/api/server-data';
+import { loadIndex, DEFAULT_GAME_TYPE, GAME_TYPES, isGameType } from '@/lib/api/server-data';
+import type { GameType } from '@/lib/api/server-data';
 import { toApiHand, computeEdgeAnnotation } from '@/lib/api/transform';
 
 export const runtime = 'nodejs';
@@ -36,6 +37,13 @@ export async function GET(request: Request) {
     const bbRaw = params.get('bb');
     const handRaw = params.get('hand');
     const vsParam = params.get('vs_position');
+
+    // Optional: game_type (default 'mtt' for backward compat)
+    const gameTypeRaw = params.get('game_type') ?? DEFAULT_GAME_TYPE;
+    if (!isGameType(gameTypeRaw)) {
+      return errors.missingParam(`game_type (must be one of: ${GAME_TYPES.join(', ')})`, startTime);
+    }
+    const gameType: GameType = gameTypeRaw;
 
     if (!scenario) return errors.missingParam('scenario', startTime);
     if (!position) return errors.missingParam('position', startTime);
@@ -60,7 +68,7 @@ export async function GET(request: Request) {
     }
 
     // 3. Resolve routing (handles VS_OPEN BB-vs-nonBB split + vs validation)
-    const routed = await routeRequest(scenario, position, vsParam);
+    const routed = await routeRequest(scenario, position, vsParam, gameType);
     if (!routed.ok) {
       return errors.invalidVsPosition(scenario, routed.available, startTime);
     }
@@ -95,11 +103,12 @@ export async function GET(request: Request) {
     const handData = chart.hands[hand];
     const apiHand = toApiHand(handData);
 
-    const idx = await loadIndex();
+    const idx = await loadIndex(gameType);
     const edgeAnno = computeEdgeAnnotation(hand, chart, idx.series_definitions);
 
     return successResponse(
       {
+        game_type: gameType,
         scenario,
         position,
         bb: bbRequested,

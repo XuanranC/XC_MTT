@@ -15,7 +15,8 @@ import {
   chartBbsForRoute,
   findChartViaRoute,
 } from '@/lib/api/scenarios';
-import { loadIndex } from '@/lib/api/server-data';
+import { loadIndex, DEFAULT_GAME_TYPE, GAME_TYPES, isGameType } from '@/lib/api/server-data';
+import type { GameType } from '@/lib/api/server-data';
 import { toApiHand, toApiEdge, computeStats } from '@/lib/api/transform';
 import type { ApiActionFreqs } from '@/lib/api/transform';
 
@@ -36,6 +37,12 @@ export async function GET(request: Request) {
     const bbRaw = params.get('bb');
     const vsParam = params.get('vs_position');
 
+    const gameTypeRaw = params.get('game_type') ?? DEFAULT_GAME_TYPE;
+    if (!isGameType(gameTypeRaw)) {
+      return errors.missingParam(`game_type (must be one of: ${GAME_TYPES.join(', ')})`, startTime);
+    }
+    const gameType: GameType = gameTypeRaw;
+
     if (!scenario) return errors.missingParam('scenario', startTime);
     if (!position) return errors.missingParam('position', startTime);
     if (bbRaw == null) return errors.missingParam('bb', startTime);
@@ -49,7 +56,7 @@ export async function GET(request: Request) {
       return errors.missingParam('bb (must be a positive integer)', startTime);
     }
 
-    const routed = await routeRequest(scenario, position, vsParam);
+    const routed = await routeRequest(scenario, position, vsParam, gameType);
     if (!routed.ok) {
       return errors.invalidVsPosition(scenario, routed.available, startTime);
     }
@@ -69,7 +76,7 @@ export async function GET(request: Request) {
       return errors.chartNotFound({ scenario, position, bb: bbRequested, vs: vsParam }, startTime);
     }
 
-    const idx = await loadIndex();
+    const idx = await loadIndex(gameType);
     const allHands: string[] = idx.hand_matrix.flat();
 
     // Build hands payload — every 169 entry, fallback to full-fold for missing.
@@ -91,6 +98,7 @@ export async function GET(request: Request) {
 
     return successResponse(
       {
+        game_type: gameType,
         scenario,
         position,
         bb: bbRequested,

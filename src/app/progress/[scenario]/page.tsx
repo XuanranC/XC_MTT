@@ -2,13 +2,14 @@
 
 import { useEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
-import { useParams } from 'next/navigation';
+import { useParams, useSearchParams } from 'next/navigation';
 import {
   getProgress,
   getWeakHands,
   getPositionStats,
   getBBBucketStats,
   getAttemptsForHand,
+  makeStatKey,
   type ProgressData,
   type WeakHandEntry,
   type AttemptRecord,
@@ -19,7 +20,8 @@ import {
   ACTION_LABELS,
   type Chart,
 } from '@/lib/types';
-import { getScenarioData } from '@/lib/data';
+import { getScenarioData, setGameType, DEFAULT_GAME_TYPE } from '@/lib/data';
+import type { GameType } from '@/lib/data';
 import { RangeMatrixModal } from '@/components/RangeMatrixModal';
 
 // ---------------------------------------------------------------------------
@@ -58,13 +60,17 @@ function errorBarColor(rate: number): string {
 
 interface HandDetailModalProps {
   scenario: string;
+  gameType: GameType;
   hand: WeakHandEntry;
   onClose: () => void;
   onOpenRangeModal: (attempt: AttemptRecord) => void;
 }
 
-function HandDetailModal({ scenario, hand, onClose, onOpenRangeModal }: HandDetailModalProps) {
-  const attempts = useMemo(() => getAttemptsForHand(scenario, hand.hand, 30), [scenario, hand.hand]);
+function HandDetailModal({ scenario, gameType, hand, onClose, onOpenRangeModal }: HandDetailModalProps) {
+  const attempts = useMemo(
+    () => getAttemptsForHand(scenario, hand.hand, gameType, 30),
+    [scenario, hand.hand, gameType],
+  );
   const errorPct = Math.round(hand.errorRate * 100);
 
   return (
@@ -207,6 +213,27 @@ export default function ScenarioDetailPage() {
   const params = useParams<{ scenario: string }>();
   const scenario = decodeURIComponent(params.scenario);
   const label = SCENARIO_LABELS[scenario] || scenario;
+  const searchParams = useSearchParams();
+
+  // Resolve game type from URL ?game_type=... (preferred, links from /progress
+  // carry it) → fallback to localStorage → fallback to default. Sync the
+  // data.ts module-level gameType so getScenarioData below pulls the right
+  // namespace when the range-modal opens.
+  const gameType: GameType = useMemo(() => {
+    const fromUrl = searchParams?.get('game_type');
+    if (fromUrl === 'mtt' || fromUrl === '6max_100bb') return fromUrl;
+    if (typeof window !== 'undefined') {
+      try {
+        const saved = localStorage.getItem('gto_drill_game_type');
+        if (saved === 'mtt' || saved === '6max_100bb') return saved;
+      } catch { /* noop */ }
+    }
+    return DEFAULT_GAME_TYPE;
+  }, [searchParams]);
+
+  useEffect(() => {
+    setGameType(gameType);
+  }, [gameType]);
 
   const [progress, setProgress] = useState<ProgressData | null>(null);
   // Chart cache values:
@@ -255,16 +282,16 @@ export default function ScenarioDetailPage() {
   }, [rangeModalAttempt]);
 
   const weakHands = useMemo(
-    () => (progress ? getWeakHands(scenario, { minAttempts: 3, minErrorRate: 0.3, limit: 20 }) : []),
-    [progress, scenario],
+    () => (progress ? getWeakHands(scenario, gameType, { minAttempts: 3, minErrorRate: 0.3, limit: 20 }) : []),
+    [progress, scenario, gameType],
   );
   const positionStats = useMemo(
-    () => (progress ? getPositionStats(scenario) : []),
-    [progress, scenario],
+    () => (progress ? getPositionStats(scenario, gameType) : []),
+    [progress, scenario, gameType],
   );
   const bbStats = useMemo(
-    () => (progress ? getBBBucketStats(scenario) : []),
-    [progress, scenario],
+    () => (progress ? getBBBucketStats(scenario, gameType) : []),
+    [progress, scenario, gameType],
   );
 
   if (!progress) {
@@ -275,7 +302,7 @@ export default function ScenarioDetailPage() {
     );
   }
 
-  const scenarioStat = progress.byScenario[scenario];
+  const scenarioStat = progress.byScenario[makeStatKey(gameType, scenario)];
   const total = scenarioStat?.total ?? 0;
   const correct = scenarioStat?.correct ?? 0;
   const pct = total > 0 ? Math.round((correct / total) * 100) : 0;
@@ -456,6 +483,7 @@ export default function ScenarioDetailPage() {
       {selectedHand && (
         <HandDetailModal
           scenario={scenario}
+          gameType={gameType}
           hand={selectedHand}
           onClose={() => setSelectedHand(null)}
           onOpenRangeModal={(attempt) => setRangeModalAttempt(attempt)}

@@ -1,26 +1,50 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import Link from 'next/link';
 import { IndexData, ScenarioMeta, SCENARIO_LABELS, compareScenarios } from '@/lib/types';
+import { getIndex, setGameType, DEFAULT_GAME_TYPE } from '@/lib/data';
+import type { GameType } from '@/lib/data';
+
+const GAME_TYPE_STORAGE_KEY = 'gto_drill_game_type';
 
 function sortScenarios(scenarios: ScenarioMeta[]): ScenarioMeta[] {
   return [...scenarios].sort((a, b) => compareScenarios(a.name, b.name));
 }
 
 export default function Home() {
+  const [gameType, setGameTypeState] = useState<GameType>(DEFAULT_GAME_TYPE);
   const [index, setIndex] = useState<IndexData | null>(null);
   const [error, setError] = useState<string | null>(null);
 
+  // On mount: restore game type from localStorage, set in data module, then load index.
   useEffect(() => {
-    fetch('/data/index.json')
-      .then((res) => {
-        if (!res.ok) throw new Error('Failed to load scenarios');
-        return res.json();
-      })
-      .then((data: IndexData) => setIndex(data))
+    let initial: GameType = DEFAULT_GAME_TYPE;
+    try {
+      const saved = localStorage.getItem(GAME_TYPE_STORAGE_KEY);
+      if (saved === 'mtt' || saved === '6max_100bb') initial = saved;
+    } catch { /* SSR / disabled storage */ }
+    setGameType(initial);
+    setGameTypeState(initial);
+    getIndex()
+      .then(setIndex)
       .catch((err) => setError(err.message));
   }, []);
+
+  const handleGameTypeChange = useCallback(async (gt: GameType) => {
+    if (gt === gameType) return;
+    setGameType(gt);
+    setGameTypeState(gt);
+    try { localStorage.setItem(GAME_TYPE_STORAGE_KEY, gt); } catch { /* noop */ }
+    setIndex(null);
+    setError(null);
+    try {
+      const idx = await getIndex();
+      setIndex(idx);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    }
+  }, [gameType]);
 
   if (error) {
     return (
@@ -35,34 +59,60 @@ export default function Home() {
     );
   }
 
-  if (!index) {
-    return (
-      <div className="flex items-center justify-center min-h-[60vh]">
-        <div className="flex flex-col items-center gap-3">
-          <div className="w-8 h-8 border-2 border-accent border-t-transparent rounded-full animate-spin" />
-          <p className="text-text-secondary text-sm">Loading scenarios...</p>
-        </div>
-      </div>
-    );
-  }
-
   return (
     <div className="max-w-6xl mx-auto px-4 sm:px-6 py-8">
-      <div className="mb-8">
+      <div className="mb-6">
         <h1 className="text-2xl sm:text-3xl font-bold tracking-tight mb-2">
           Preflop Scenarios
         </h1>
         <p className="text-text-secondary text-sm sm:text-base">
-          Select a scenario to study GTO preflop ranges. {index.scenarios.length}{' '}
-          scenarios available.
+          Select a scenario to study GTO preflop ranges.
         </p>
       </div>
 
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-        {sortScenarios(index.scenarios).map((scenario: ScenarioMeta) => (
-          <ScenarioCard key={scenario.name} scenario={scenario} />
-        ))}
+      {/* Game type tab — MTT vs 6-Max 100bb */}
+      <div className="mb-6 flex gap-2">
+        {([
+          { gt: 'mtt' as GameType, label: 'MTT', sub: '短栈训练 2-100bb' },
+          { gt: '6max_100bb' as GameType, label: '6-Max 100bb', sub: '线上常规桌' },
+        ]).map(({ gt, label, sub }) => {
+          const active = gameType === gt;
+          return (
+            <button
+              key={gt}
+              onClick={() => handleGameTypeChange(gt)}
+              className={`flex-1 sm:flex-initial px-4 py-3 rounded-lg text-sm font-medium transition-colors text-left ${
+                active
+                  ? 'bg-purple-600 text-white shadow-lg'
+                  : 'bg-bg-card text-text-secondary hover:bg-bg-hover'
+              }`}
+            >
+              <div className="font-bold">{label}</div>
+              <div className={`text-xs mt-0.5 ${active ? 'text-purple-100' : 'text-text-secondary/60'}`}>{sub}</div>
+            </button>
+          );
+        })}
       </div>
+
+      {!index ? (
+        <div className="flex items-center justify-center py-16">
+          <div className="flex flex-col items-center gap-3">
+            <div className="w-8 h-8 border-2 border-accent border-t-transparent rounded-full animate-spin" />
+            <p className="text-text-secondary text-sm">Loading scenarios...</p>
+          </div>
+        </div>
+      ) : (
+        <>
+          <p className="text-text-secondary text-sm mb-4">
+            {index.scenarios.length} scenarios available · 当前模式: {gameType === 'mtt' ? 'MTT' : '6-Max 100bb'}
+          </p>
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+            {sortScenarios(index.scenarios).map((scenario: ScenarioMeta) => (
+              <ScenarioCard key={scenario.name} scenario={scenario} />
+            ))}
+          </div>
+        </>
+      )}
     </div>
   );
 }

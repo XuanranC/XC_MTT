@@ -15,6 +15,8 @@ import {
   chartBbsForRoute,
   findChartViaRoute,
 } from '@/lib/api/scenarios';
+import { DEFAULT_GAME_TYPE, GAME_TYPES, isGameType } from '@/lib/api/server-data';
+import type { GameType } from '@/lib/api/server-data';
 import { toApiHand } from '@/lib/api/transform';
 
 export const runtime = 'nodejs';
@@ -35,6 +37,12 @@ export async function GET(request: Request) {
     const vsParam = params.get('vs_position');
     const bbListRaw = params.get('bb_list');
 
+    const gameTypeRaw = params.get('game_type') ?? DEFAULT_GAME_TYPE;
+    if (!isGameType(gameTypeRaw)) {
+      return errors.missingParam(`game_type (must be one of: ${GAME_TYPES.join(', ')})`, startTime);
+    }
+    const gameType: GameType = gameTypeRaw;
+
     if (!scenario) return errors.missingParam('scenario', startTime);
     if (!position) return errors.missingParam('position', startTime);
     if (!handRaw) return errors.missingParam('hand', startTime);
@@ -50,7 +58,7 @@ export async function GET(request: Request) {
       return errors.unknownHand(handRaw, startTime);
     }
 
-    const routed = await routeRequest(scenario, position, vsParam);
+    const routed = await routeRequest(scenario, position, vsParam, gameType);
     if (!routed.ok) {
       return errors.invalidVsPosition(scenario, routed.available, startTime);
     }
@@ -96,6 +104,7 @@ export async function GET(request: Request) {
 
     return successResponse(
       {
+        game_type: gameType,
         scenario,
         position,
         hand,
