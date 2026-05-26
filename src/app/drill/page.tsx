@@ -717,8 +717,13 @@ async function generateQuestions(
 
       // Edge mode: floor of each series + the hand one above + one below in series order.
       // E.g. if Q4s is the floor of the Qxs series, test Q3s (one stronger), Q4s (floor), Q5s (one weaker).
+      //
+      // If chart.edges is empty (e.g. 6-Max namespace data does not yet ship
+      // pre-computed edges), fall back to random behaviour for that chart so
+      // the user doesn't get an empty pool. Once edges are added the mode
+      // will start filtering meaningfully without further code changes.
       let edgeHands: Set<string> | null = null;
-      if (filters.mode === 'edge') {
+      if (filters.mode === 'edge' && chart.edges && Object.keys(chart.edges).length > 0) {
         edgeHands = new Set<string>();
         for (const [seriesName, info] of Object.entries(chart.edges)) {
           const series = seriesDefinitions[seriesName];
@@ -881,6 +886,9 @@ function DrillPageInner() {
   const advanceTimeoutRef = useRef<number | null>(null);
 
   // Restore game type from localStorage on mount + load matching index.
+  // CRITICAL: also seed bbRange + mode to match the namespace, otherwise the
+  // hidden-but-still-stateful BB Range filter (default [2,30]) excludes every
+  // 100bb chart in the 6-Max namespace and generateQuestions returns 0 hands.
   useEffect(() => {
     let initial: GameType = DEFAULT_GAME_TYPE;
     try {
@@ -889,6 +897,10 @@ function DrillPageInner() {
     } catch { /* SSR or storage disabled */ }
     setGameType(initial);
     setGameTypeUI(initial);
+    if (initial === '6max_100bb') {
+      setBbRange([100, 100]);
+      setMode('random');
+    }
     getIndex().then(setIndex);
   }, []);
 
@@ -902,6 +914,10 @@ function DrillPageInner() {
     setSelectedScenarios(['RFI']);
     setSelectedPositions([]);
     setBbRange(gt === '6max_100bb' ? [100, 100] : [2, 30]);
+    // 6-Max charts ship without pre-computed edges, so Edge Only mode would
+    // silently degrade to random there. Default to random for clarity until
+    // edge data is generated for the 6-Max namespace.
+    if (gt === '6max_100bb') setMode('random');
     setIndex(null);
     const idx = await getIndex();
     setIndex(idx);
