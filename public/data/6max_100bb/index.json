@@ -91,15 +91,15 @@
         "SB"
       ],
       "vs_positions": [
-        "BTN_over_SB",
-        "CO_over_BTN",
-        "HJ_over_BTN",
-        "HJ_over_CO",
-        "HJ_over_SB",
-        "UTG_over_BTN",
-        "UTG_over_CO",
-        "UTG_over_HJ",
-        "UTG_over_SB"
+        "BTN_over_CO",
+        "BTN_over_HJ",
+        "BTN_over_UTG",
+        "CO_over_HJ",
+        "CO_over_UTG",
+        "HJ_over_UTG",
+        "SB_over_BTN",
+        "SB_over_HJ",
+        "SB_over_UTG"
       ],
       "bbs": [
         100
@@ -115,16 +115,16 @@
         "SB"
       ],
       "vs_positions": [
-        "BTN_over_SB",
-        "CO_over_BTN",
-        "CO_over_SB",
-        "HJ_over_BTN",
-        "HJ_over_CO",
-        "HJ_over_SB",
-        "UTG_over_BTN",
-        "UTG_over_CO",
-        "UTG_over_HJ",
-        "UTG_over_SB"
+        "BTN_over_CO",
+        "BTN_over_HJ",
+        "BTN_over_UTG",
+        "CO_over_HJ",
+        "CO_over_UTG",
+        "HJ_over_UTG",
+        "SB_over_BTN",
+        "SB_over_CO",
+        "SB_over_HJ",
+        "SB_over_UTG"
       ],
       "bbs": [
         100
